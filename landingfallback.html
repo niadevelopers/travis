@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Travis Guardian — Cash Discipline Machine</title>
+  <meta name="description" content="Offline financial JARVIS for Kenyan hustlers. Know exactly how long your money lasts — no cloud, no bullshit."/>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=VT323&family=Space+Grotesk:wght@300;500;700&family=MS+Reference+Sans+Serif&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root {
+      --xp-green: #4ade80;
+      --xp-title: #0a6b3a;
+      --xp-gray: #c0c0c0;
+      --xp-beige: #f0f0f0;
+      --xp-blue: #000080;
+      --xp-shadow: #808080;
+    }
+
+    body {
+      font-family: 'Space Grotesk', system-ui, sans-serif;
+      background: #008080 url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"><rect width="2" height="2" fill="%23004040"/><rect x="2" y="2" width="2" height="2" fill="%23004040"/></svg>') repeat;
+      color: #111;
+      margin: 0;
+      height: 100vh;
+      overflow-x: hidden;
+    }
+
+    .xp-window {
+      background: var(--xp-beige);
+      border: 2px solid #dfdfdf;
+      border-right-color: var(--xp-shadow);
+      border-bottom-color: var(--xp-shadow);
+      box-shadow: 4px 4px 0 #0004;
+      image-rendering: pixelated;
+    }
+
+    .xp-titlebar {
+      background: linear-gradient(to right, var(--xp-blue), #1084d0);
+      color: white;
+      padding: 3px 8px;
+      font-family: 'MS Reference Sans Serif', Tahoma, sans-serif;
+      font-size: 11px;
+      font-weight: bold;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      user-select: none;
+    }
+
+    .xp-btn {
+      width: 16px;
+      height: 14px;
+      background: var(--xp-gray);
+      border: 1px solid #fff;
+      border-right-color: #808080;
+      border-bottom-color: #808080;
+      font-size: 10px;
+      line-height: 10px;
+      text-align: center;
+      cursor: pointer;
+    }
+
+    .scanlines {
+      pointer-events: none;
+      position: fixed;
+      inset: 0;
+      background: repeating-linear-gradient(
+        to bottom,
+        transparent 0,
+        transparent 2px,
+        rgba(0,0,0,0.07) 2px,
+        rgba(0,0,0,0.07) 4px
+      );
+      z-index: 9999;
+    }
+
+    .crt-flicker {
+      animation: flicker 0.15s infinite alternate;
+    }
+
+    @keyframes flicker {
+      0%,100% { opacity: 1; }
+      50% { opacity: 0.98; }
+    }
+
+    .retro-type {
+      font-family: 'VT323', monospace;
+      font-size: 1.4rem;
+      letter-spacing: 0.08em;
+      line-height: 1.45;
+    }
+
+    .neon-glow {
+      text-shadow: 0 0 10px var(--xp-green), 0 0 20px var(--xp-green);
+    }
+  </style>
+</head>
+<body class="crt-flicker relative">
+
+  <!-- fake CRT overlay -->
+  <div class="scanlines pointer-events-none fixed inset-0 z-50"></div>
+
+  <!-- Fake Windows XP taskbar -->
+  <div class="fixed bottom-0 left-0 right-0 h-10 bg-gradient-to-b from-[#c0c0c0] to-[#808080] border-t-2 border-[#dfdfdf] flex items-center px-2 z-40">
+    <button class="bg-gradient-to-b from-[#00c000] to-[#008000] text-white font-bold px-3 py-1 border-2 border-[#fff] border-r-[#000] border-b-[#000] shadow-md flex items-center gap-1 text-sm">
+      <span class="text-lg">⊞</span> Start
+    </button>
+    <div class="flex-1"></div>
+    <div class="bg-black/70 text-[#0f0] px-3 py-1 text-sm font-mono retro-type border border-[#0f0]/30">
+      22 Mar 2026 13:52 EAT
+    </div>
+  </div>
+
+  <main class="max-w-6xl mx-auto pt-8 pb-24 px-4 md:px-8">
+
+    <!-- Big centered window -->
+    <div class="xp-window mx-auto max-w-4xl mt-16 mb-20 shadow-2xl">
+      <div class="xp-titlebar">
+        <span>Travis Guardian v5.8 — Cash Discipline Machine</span>
+        <div class="flex gap-1">
+          <div class="xp-btn">_</div>
+          <div class="xp-btn">□</div>
+          <div class="xp-btn text-red-700">×</div>
+        </div>
+      </div>
+
+      <div class="p-8 md:p-12 bg-white/90">
+        <h1 class="text-6xl md:text-8xl font-black tracking-tighter leading-none mb-8 text-black">
+          YOUR MONEY.<br>
+          YOUR RULES.<br>
+          <span class="text-[#0a6b3a] neon-glow">TRAVIS</span> HAS YOUR BACK.
+        </h1>
+
+        <p class="text-2xl md:text-3xl text-gray-800 max-w-3xl mb-12 leading-relaxed">
+          Offline financial co-pilot built for Nairobi hustlers.<br>
+          Tells you straight whether that 12k turn-up money will leave you broke by the 23rd.
+        </p>
+
+        <div class="flex flex-col sm:flex-row gap-6 justify-center mb-16">
+          <a href="index.html" 
+             class="inline-block bg-[#0a6b3a] hover:bg-[#4ade80] text-white font-black text-2xl px-12 py-6 border-4 border-black shadow-[6px_6px_0_#000] hover:shadow-[10px_10px_0_#000] transition-all">
+            → LAUNCH TRAVIS NOW
+          </a>
+
+          <button onclick="document.getElementById('pain').scrollIntoView({behavior:'smooth'})"
+                  class="inline-block bg-gray-300 hover:bg-gray-400 text-black font-bold text-xl px-10 py-6 border-4 border-black shadow-[4px_4px_0_#000] hover:shadow-[8px_8px_0_#000] transition-all">
+            Why do I need this thing?
+          </button>
+        </div>
+
+        <!-- Quick stats strip -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-center text-sm uppercase tracking-wider font-bold text-gray-700">
+          <div class="bg-gray-200 p-4 border-2 border-gray-400">0 CLOUD</div>
+          <div class="bg-gray-200 p-4 border-2 border-gray-400">DOUBLE ENTRY</div>
+          <div class="bg-gray-200 p-4 border-2 border-gray-400">PERSONAL + BIZ</div>
+          <div class="bg-gray-200 p-4 border-2 border-gray-400">WORKS IN MATATU</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Pain points -->
+    <div id="pain" class="xp-window mx-auto max-w-4xl mb-20">
+      <div class="xp-titlebar">
+        <span>Why most hustlers stay broke — real talk</span>
+      </div>
+      <div class="p-10 bg-white/90">
+        <ul class="space-y-8 text-xl md:text-2xl text-gray-800">
+          <li class="flex items-start gap-6">
+            <span class="text-5xl text-red-600 font-black">×</span>
+            <div>Mixing salary, side-hustle, and rent money in one M-Pesa — then wondering why you're always negative by 20th</div>
+          </li>
+          <li class="flex items-start gap-6">
+            <span class="text-5xl text-red-600 font-black">×</span>
+            <div>Guessing "I think I have like 2 weeks left" — then surprise, landlord is at the door</div>
+          </li>
+          <li class="flex items-start gap-6">
+            <span class="text-5xl text-red-600 font-black">×</span>
+            <div>Buying stock / paying school fees / going out without knowing if it'll break you before next inflow</div>
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- What Travis actually does -->
+    <div class="xp-window mx-auto max-w-4xl mb-20">
+      <div class="xp-titlebar">
+        <span>What Travis actually does for you</span>
+      </div>
+      <div class="p-10 bg-white/90 grid md:grid-cols-2 gap-10">
+        <div>
+          <h3 class="text-3xl font-black mb-6 text-[#0a6b3a]">Runway Clock</h3>
+          <p class="text-xl">Tells you "Your money lasts 2.4 months at current burn rate" — updated every transaction.</p>
+        </div>
+        <div>
+          <h3 class="text-3xl font-black mb-6 text-[#0a6b3a]">Straight Talk Advisor</h3>
+          <p class="text-xl">Ask "Should I spend 18k on nyama choma this weekend?" → gets real verdict based on your actual numbers.</p>
+        </div>
+        <div>
+          <h3 class="text-3xl font-black mb-6 text-[#0a6b3a]">Personal vs Business Mode</h3>
+          <p class="text-xl">Different tone & logic — doesn't give boda boda advice to someone paying school fees.</p>
+        </div>
+        <div>
+          <h3 class="text-3xl font-black mb-6 text-[#0a6b3a]">Works Offline Forever</h3>
+          <p class="text-xl">No internet = no problem. Data never leaves your phone.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Final CTA window -->
+    <div class="xp-window mx-auto max-w-3xl text-center p-12 bg-white/95 border-4 border-[#0a6b3a]">
+      <h2 class="text-5xl md:text-6xl font-black mb-8 text-black">
+        Stop guessing.<br>Start knowing.
+      </h2>
+      <a href="index.html"
+         class="inline-block bg-[#0a6b3a] hover:bg-[#4ade80] text-white font-black text-3xl px-16 py-8 border-4 border-black shadow-[8px_8px_0_#000] hover:shadow-[14px_14px_0_#000] transition-all mt-6">
+        LAUNCH TRAVIS →
+      </a>
+      <p class="mt-10 text-lg text-gray-700">No subscription. No login. No cloud. Just your numbers and brutal honesty.</p>
+    </div>
+
+  </main>
+
+  <!-- Footer with contact -->
+  <footer class="bg-black/80 border-t-4 border-[#0a6b3a] py-10 text-center text-gray-400">
+    <p class="text-lg mb-4">Travis Guardian v5.8 — Built in Nairobi for people who hustle</p>
+    <p class="text-sm">
+      Stuck? Need help? 
+      <a href="mailto:travisguardian@proton.me" class="text-[#4ade80] hover:underline">travisguardian@proton.me</a>
+      <span class="mx-3">•</span>
+      <a href="https://wa.me/2547XXXXXXXX" class="text-[#4ade80] hover:underline">WhatsApp support</a>
+    </p>
+  </footer>
+
+  <script>
+    function enterTheMachine() {
+      window.location.href = "index.html";
+    }
+  </script>
+</body>
+</html>

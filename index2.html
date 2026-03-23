@@ -1,0 +1,825 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Travis Guardian v5.8 | Full Production Machine</title>
+    <link rel="manifest" href="manifest.json">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;500;700&display=swap');
+        body { font-family: 'Space+Grotesk', sans-serif; background-color: #020617; color: #f8fafc; margin: 0; }
+        .glass { background: rgba(15, 23, 42, 0.9); backdrop-filter: blur(12px); border: 1px solid rgba(74, 222, 128, 0.2); }
+        .neon-border { border: 2px solid #4ade80; box-shadow: 0 0 15px rgba(74, 222, 128, 0.3); }
+        .btn-elite { transition: all 0.2s; border: 2px solid #4ade80; cursor: pointer; }
+        .btn-elite:hover { background: #4ade80; color: #020617; }
+        .user-msg { background: #1e293b; padding: 12px; border-radius: 12px 12px 0 12px; align-self: flex-end; max-width: 80%; }
+        .travis-msg { background: #064e3b; border-left: 4px solid #4ade80; padding: 12px; border-radius: 0 12px 12px 12px; align-self: flex-start; max-width: 80%; }
+        input, select { background: #0f172a !important; color: white !important; outline: none; border: 2px solid #334155; transition: border 0.3s; }
+        input:focus { border-color: #4ade80; }
+        .leak-red { color: #ef4444; text-shadow: 0 0 8px rgba(239, 68, 68, 0.4); }
+        .velocity-fast { color: #ef4444; text-shadow: 0 0 10px rgba(239, 68, 68, 0.5); }
+        .progress-bg { background: #1e293b; height: 8px; border-radius: 4px; overflow: hidden; }
+        .progress-fill { height: 100%; transition: width 0.5s ease-in-out; }
+        .risk-heatmap { background: linear-gradient(90deg, #4ade80 0%, #eab308 50%, #ef4444 100%); height: 4px; border-radius: 2px; }
+
+        /* ================== GLOBAL SCROLLBAR HIDE (KEEPS SCROLLING) ================== */
+* {
+    -ms-overflow-style: none;       /* Internet Explorer + Edge legacy */
+    scrollbar-width: none;          /* Firefox */
+}
+
+/* Chrome, Safari, Edge, Opera */
+*::-webkit-scrollbar {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+}
+
+/* Extra safety for any container that might override */
+html, body, .glass, .neon-border, #view-port, #chat-box, #obligation-list {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+
+html::-webkit-scrollbar,
+body::-webkit-scrollbar,
+.glass::-webkit-scrollbar,
+.neon-border::-webkit-scrollbar,
+#view-port::-webkit-scrollbar,
+#chat-box::-webkit-scrollbar,
+#obligation-list::-webkit-scrollbar {
+    display: none !important;
+}
+    </style>
+</head>
+<body class="p-4 md:p-8">
+
+<!-- ================== INSTALL OVERLAY - FORCED PWA INSTALL ================== -->
+<div id="install-overlay" class="fixed inset-0 bg-[#020617] z-[9999] flex items-center justify-center p-4">
+    <div class="max-w-md w-full glass p-10 border-4 border-[#4ade80] text-center">
+        <h1 class="text-5xl font-black mb-2 italic text-[#4ade80]">TRAVIS <span class="text-white">v5.8</span></h1>
+        <p class="text-3xl font-black mb-6 text-white">INSTALL REQUIRED</p>
+        <p class="text-xl mb-8 text-slate-400">This application runs only as a secure standalone app.<br>Browser tabs are blocked for security reasons.</p>
+        <div class="bg-red-950/30 border border-red-500/50 p-4 rounded mb-8">
+            <p class="text-red-400 text-sm font-bold">Device fingerprint will be sent to server on install.</p>
+            <p class="text-[10px] text-slate-400 mt-1">Admin will provide your activation code after.</p>
+        </div>
+        <button id="install-btn" class="w-full bg-[#4ade80] text-black py-6 text-3xl font-black btn-elite">
+            INSTALL APP NOW
+        </button>
+        <p id="install-status" class="text-sm mt-6 text-slate-300">Preparing install…</p>
+        <p class="text-[10px] mt-8 opacity-50">Must install to continue. No bypass.</p>
+    </div>
+</div>
+
+<!-- ACTIVATION OVERLAY -->
+<div id="activation-overlay" class="fixed inset-0 bg-[#020617] z-[100] flex items-center justify-center p-4 hidden">
+    <div class="max-w-md w-full glass p-10 border-4 border-[#4ade80] text-center">
+        <h1 class="text-5xl font-black mb-2 italic text-[#4ade80]">TRAVIS <span class="text-white">v5.8</span></h1>
+        <p class="text-3xl font-black mb-6 text-white">DEVICE ACTIVATION</p>
+        <p class="text-slate-400 mb-8">Device fingerprinted.<br>Enter code provided by admin.</p>
+        <div class="bg-slate-900 p-6 rounded-xl mb-8">
+            <label class="block text-[#4ade80] text-sm font-bold mb-3">ACTIVATION CODE</label>
+            <input id="act-code" type="text" placeholder="TRV-KE-XXXXXXXX-5634" 
+                   class="w-full p-5 text-2xl font-mono text-center tracking-widest bg-[#0f172a] border-2 border-[#4ade80]/50 rounded-xl focus:border-[#4ade80]">
+        </div>
+        <button onclick="attemptActivation()" class="w-full bg-[#4ade80] text-black py-6 text-3xl font-black btn-elite">ACTIVATE</button>
+        <div class="mt-8 text-xs text-slate-400">
+            <span onclick="location.reload()" class="cursor-pointer hover:text-white underline">Reload</span>
+        </div>
+    </div>
+</div>
+
+<!-- SETUP OVERLAY (unchanged) -->
+<div id="setup-overlay" class="fixed inset-0 bg-[#020617] z-[100] flex items-center justify-center p-4 hidden">
+    <!-- ... your original setup content remains exactly the same ... -->
+    <div class="max-w-4xl w-full glass p-10 border-4 border-[#4ade80] max-h-[90vh] overflow-y-auto">
+        <h1 class="text-5xl font-black mb-2 italic text-[#4ade80]">TRAVIS <span class="text-white">v5.8</span></h1>
+        <p class="text-xl mb-8 text-slate-400">Production-Ready Intelligence</p>
+        <div class="grid grid-cols-2 gap-4 mb-8">
+            <button id="btn-p" onclick="setUserType('personal')" class="p-6 border-2 border-slate-700 font-bold">PERSONAL</button>
+            <button id="btn-b" onclick="setUserType('business')" class="p-6 border-2 border-slate-700 font-bold">BUSINESS</button>
+        </div>
+        <div class="space-y-6">
+            <input id="user-name" type="text" placeholder="Entity Name" class="w-full p-4 text-xl">
+            <div class="bg-slate-900/50 p-6 border-2 border-slate-800">
+                <div class="flex justify-between items-center mb-4">
+                    <p class="text-[#4ade80] font-bold text-sm uppercase">Monthly Mandatory Obligations</p>
+                    <button onclick="addObligationRow()" class="text-xs bg-[#4ade80] text-black px-3 py-1 font-bold">+ ADD</button>
+                </div>
+                <div id="obligation-list" class="space-y-3"></div>
+            </div>
+        </div>
+        <button onclick="finalizeSetup()" class="w-full mt-8 bg-[#4ade80] text-black py-6 text-3xl font-black btn-elite">ACTIVATE MACHINE</button>
+    </div>
+</div>
+
+<!-- Rest of your HTML (app, tx-modal, etc.) remains unchanged -->
+<div id="app" class="max-w-7xl mx-auto hidden"> <!-- hidden until activated & setup -->
+    <!-- ... your full app content here (header, dashboard-grid, nav, view-port, tx-modal) ... -->
+       <header class="flex justify-between items-end mb-8 border-b-2 border-slate-800 pb-6">
+        <div>
+            <h2 id="display-name" class="text-4xl font-black uppercase tracking-tighter">---</h2>
+            <p id="display-mode" class="text-[#4ade80] font-mono uppercase text-sm tracking-widest">---</p>
+        </div>
+        <div id="header-verdict" class="px-4 py-2 border-2 border-[#4ade80] rounded font-black uppercase tracking-widest">SYSTEM READY</div>
+    </header>
+
+    <div id="dashboard-grid" class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8"></div>
+
+    <nav class="flex flex-wrap gap-2 mb-8">
+        <button onclick="nav('dash')" class="btn-elite px-6 py-2 font-bold uppercase">Dashboard</button>
+        <button onclick="nav('ask')" class="bg-blue-600 text-white px-6 py-2 font-bold hover:bg-blue-500 uppercase">Consult Travis</button>
+        <button onclick="nav('obs')" class="bg-yellow-600 text-white px-6 py-2 font-bold hover:bg-yellow-500 uppercase">Obligations</button>
+        <button onclick="showTxModal()" class="bg-[#4ade80] text-black px-6 py-2 font-bold uppercase">New Entry</button>
+        <button onclick="nav('book')" class="btn-elite px-6 py-2 font-bold uppercase">Ledger</button>
+    </nav>
+
+    <main id="view-port" class="min-h-[500px]"></main>
+</div>
+
+<div id="tx-modal" class="fixed inset-0 bg-black/95 z-[200] hidden flex items-center justify-center p-4">
+    <div class="max-w-xl w-full glass p-8 neon-border">
+        <div id="live-hud" class="mb-6 p-4 bg-slate-900 border border-[#4ade80]/30 rounded space-y-2">
+            <div class="flex justify-between text-[10px] uppercase font-bold">
+                <span class="text-slate-400">New Daily Cap:</span>
+                <span id="hud-cap" class="text-[#4ade80]">KSh 0</span>
+            </div>
+            <div class="flex justify-between text-[10px] uppercase font-bold">
+                <span class="text-slate-400">Coverage:</span>
+                <span id="hud-cover" class="text-white">RESERVED</span>
+            </div>
+            <div id="hud-warning" class="text-[9px] text-red-500 font-black uppercase animate-pulse hidden italic text-center pt-1 border-t border-red-900/50">High Risk: Exceeds Survival Ceiling</div>
+        </div>
+        
+        <div class="space-y-4">
+            <div><label class="text-[#4ade80] block mb-1 text-[10px] font-bold">SOURCE (Debit)</label><select id="tx-debit" class="w-full p-4 border-2 border-slate-700"></select></div>
+            <div><label class="text-[#ef4444] block mb-1 text-[10px] font-bold">DESTINATION (Credit)</label><select id="tx-credit" class="w-full p-4 border-2 border-slate-700"></select></div>
+            <input id="tx-amount" type="number" oninput="updateLiveHud()" placeholder="Amount (KSh)" class="w-full p-4 text-2xl font-bold">
+            <input id="tx-desc" type="text" placeholder="Description/Note" class="w-full p-4">
+        </div>
+        <div class="grid grid-cols-2 gap-4 mt-8">
+            <button onclick="commitTransaction()" class="bg-[#4ade80] text-black py-4 font-black uppercase">Post To Ledger</button>
+            <button onclick="closeTxModal()" class="border-2 border-slate-700 text-slate-400 font-bold uppercase">Cancel</button>
+        </div>
+    </div>
+
+</div>
+
+<script>
+// ================== SERVICE WORKER REGISTRATION ==================
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js')
+      .then(reg => {
+        console.log('Service Worker registered successfully', reg.scope);
+      })
+      .catch(err => {
+        console.error('Service Worker registration failed:', err);
+        document.getElementById('install-status').innerText = 'Service worker failed – install may not work';
+      });
+  });
+}
+
+// ================== INSTALL PROMPT HANDLING ==================
+let deferredPrompt = null;
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  console.log('beforeinstallprompt event fired – app is installable');
+  e.preventDefault();
+  deferredPrompt = e;
+  document.getElementById('install-status').innerText = 'Ready to install – click below';
+  document.getElementById('install-btn').disabled = false;
+});
+
+window.addEventListener('appinstalled', () => {
+  console.log('PWA was successfully installed');
+  document.getElementById('install-status').innerText = 'Installed! Reopen from home screen.';
+  // Optionally hide overlay after a delay or on next load via standalone check
+});
+
+// ================== FINGERPRINT (unchanged) ==================
+function generateFingerprint() {
+  // ... your original fingerprint function remains unchanged ...
+  const components = [
+    navigator.userAgent,
+    `${screen.width}x${screen.height}`,
+    screen.colorDepth || '24',
+    navigator.hardwareConcurrency || 'unknown',
+    navigator.platform,
+    navigator.language || 'en',
+    new Date().getTimezoneOffset().toString(),
+    navigator.vendor || ''
+  ].join('|');
+
+  const canvas = document.createElement('canvas');
+  canvas.width = 280; canvas.height = 70;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#111'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.font = 'bold 28px Arial'; ctx.fillStyle = '#4ade80';
+  ctx.fillText('TRAVIS GUARDIAN', 20, 45);
+  const canvasData = canvas.toDataURL('image/png');
+
+  const seed = components + '|' + canvasData;
+  let digitFP = ''; let hash = 5381;
+  for (let i = 0; i < seed.length; i++) {
+    hash = ((hash << 5) + hash) + seed.charCodeAt(i);
+    digitFP += Math.abs(hash % 10).toString();
+  }
+  while (digitFP.length < 40) {
+    hash = ((hash << 5) + hash) + 123;
+    digitFP += Math.abs(hash % 10).toString();
+  }
+  return digitFP.substring(0, 40);
+}
+
+// ================== TRIGGER INSTALL ==================
+async function triggerInstall() {
+  const fp = generateFingerprint();
+
+  try {
+    await fetch('/activate-fingerprint', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fingerprint: fp })
+    });
+    console.log('%cFingerprint sent to server', 'color:#4ade80; font-weight:bold');
+  } catch (e) {
+    console.warn('Fingerprint send failed – offline?', e);
+  }
+
+  if (deferredPrompt) {
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    deferredPrompt = null;
+
+    if (outcome === 'accepted') {
+      document.getElementById('install-overlay').classList.add('hidden');
+      alert('Installed! Close this tab → open from home screen to activate.');
+    } else {
+      alert('Install cancelled. You must install to continue.');
+    }
+  } else {
+    document.getElementById('install-status').innerText = 'Install not available yet – check console / Lighthouse';
+    alert('Browser did not offer install prompt.\n\nPossible reasons:\n• Not on HTTPS/localhost\n• Missing icons in manifest\n• Service worker not active\n• Already installed\n\nRun Lighthouse audit → PWA category.');
+  }
+}
+
+// ================== ACTIVATION (unchanged) ==================
+async function attemptActivation() {
+  const entered = document.getElementById('act-code').value.trim().toUpperCase();
+  let currentMeta = await getData("meta", "config");
+  let fp = currentMeta?.fingerprint || generateFingerprint();
+
+  const next8 = fp.slice(3, 11);
+  const expected = `TRV-KE-${next8}-5634`;
+
+  if (entered === expected) {
+    const updatedMeta = { id: "config", ...(currentMeta || {}), activated: true, fingerprint: fp };
+    await saveData("meta", updatedMeta);
+    document.getElementById('activation-overlay').classList.add('hidden');
+    location.reload();
+  } else {
+    alert(`Invalid code. Expected: TRV-KE-XXXXXXXX-5634`);
+    document.getElementById('act-code').value = '';
+  }
+}
+
+// ================== IndexedDB & other logic (unchanged, just keeping structure) ==================
+// ... paste all your original IndexedDB, state, getFin, calculateInsolvencyRisk, handleAsk, nav, renderChart, updateHeader, isLiquid, getBalance, showTxModal, commitTransaction, addObligationRow, setUserType, finalizeSetup, factoryReset, saveData/getData/getAllData, closeTxModal functions here ...
+// ================== INDEXEDDB SETUP (unchanged) ==================
+let db;
+let state = { user: null, transactions: [], obligations: [] };
+
+async function initDB() {
+    return new Promise(res => {
+        const req = indexedDB.open("TravisGuardian_v5_8", 1);
+        req.onupgradeneeded = (e) => {
+            const d = e.target.result;
+            d.createObjectStore("meta", { keyPath: "id" });
+            d.createObjectStore("tx", { keyPath: "id" });
+        };
+        req.onsuccess = (e) => { db = e.target.result; res(); };
+    });
+}
+
+// ================== TRAVIS MEMORY ==================
+let travisMemory = {
+    conversationCount: 0,
+    lastQuestion: "",
+    lastPurpose: "",
+    lastVerdict: ""
+};
+
+// ================== HELPERS (MOVED UP — this fixes the error) ==================
+function isObligation(spendDesc) {
+    if (!state.obligations || state.obligations.length === 0) return false;
+    return state.obligations.some(o => 
+        spendDesc.toLowerCase().includes(o.label.toLowerCase())
+    );
+}
+
+function getStatusSummary() {
+    const fin = getFin();
+    const risk = calculateInsolvencyRisk();
+    return {
+        cash: Math.round(fin.safeCash),
+        dailyCap: Math.floor(fin.daily),
+        daysRem: fin.daysRem,
+        riskLabel: risk.label,
+        riskColor: risk.color,
+        riskScore: risk.score
+    };
+}
+
+// ================== RESTORED HUD LOGIC (unchanged) ==================
+function updateLiveHud() {
+    const amount = parseFloat(document.getElementById('tx-amount').value) || 0;
+    const credit = document.getElementById('tx-credit').value;
+    const fin = getFin();
+    
+    const projectedSafe = isLiquid(credit) ? fin.safeCash - amount : fin.safeCash;
+    const newCap = projectedSafe / fin.daysRem;
+    
+    document.getElementById('hud-cap').innerText = `KSh ${newCap.toFixed(0)}`;
+    document.getElementById('hud-cover').innerText = `KSh ${fin.pending.toLocaleString()} Reserved`;
+    
+    const warn = document.getElementById('hud-warning');
+    if (isLiquid(credit) && amount > fin.daily) {
+        warn.classList.remove('hidden');
+    } else {
+        warn.classList.add('hidden');
+    }
+}
+
+function getFin() {
+    const now = new Date();
+    const daysRem = Math.max(1, new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate() - now.getDate());
+    let liquid = 0;
+    const cashAccs = state.user.type === 'personal' ? ["Cash", "M-Pesa"] : ["Bank/M-Pesa", "Petty Cash"];
+    cashAccs.forEach(a => liquid += getBalance(a));
+
+    const obsStatus = state.obligations.map(o => {
+        let paid = 0;
+        state.transactions.forEach(t => {
+            const tDate = new Date(t.id);
+            if (tDate.getMonth() === now.getMonth() && (t.desc.toLowerCase().includes(o.label.toLowerCase()) || t.credit === o.label)) {
+                paid += t.amount;
+            }
+        });
+        return { ...o, paid, pending: Math.max(0, o.amount - paid), variance: paid - o.amount };
+    });
+
+    const pending = obsStatus.reduce((a, b) => a + b.pending, 0);
+    const safeCash = liquid - pending;
+    return { liquid, pending, safeCash, daysRem, obsStatus, daily: safeCash / daysRem };
+}
+
+// ================== PROBABILITY OF INSOLVENCY ENGINE (unchanged) ==================
+function calculateInsolvencyRisk() {
+    const fin = getFin();
+    const velocity = (function(){
+        const now = new Date();
+        const weekAgo = new Date(); weekAgo.setDate(now.getDate() - 7);
+        let ts = 0;
+        state.transactions.forEach(t => { if (new Date(t.id) >= weekAgo && isLiquid(t.credit)) ts += t.amount; });
+        return ts / 7;
+    })();
+
+    if (velocity <= fin.daily) return { score: 5, label: "LOW", color: "#4ade80" };
+    if (velocity > fin.daily && velocity < (fin.daily * 1.5)) return { score: 45, label: "MODERATE", color: "#eab308" };
+    if (velocity >= (fin.daily * 1.5)) return { score: 85, label: "CRITICAL", color: "#ef4444" };
+    return { score: 0, label: "UNDETERMINED", color: "#94a3b8" };
+}
+
+// ================== ENHANCED HUMAN TRAVIS ADVISOR v5.9 ==================
+function handleAsk() {
+    const input = document.getElementById('chat-input');
+    const box = document.getElementById('chat-box');
+    const rawQ = input.value.trim();
+    if (!rawQ) return;
+
+    travisMemory.conversationCount++;
+    travisMemory.lastQuestion = rawQ;
+
+    const q = rawQ.toLowerCase().trim();
+    const fin = getFin();
+    const status = getStatusSummary();
+
+    // Extract amount
+    let amount = 0;
+    const numMatch = q.match(/(\d+)(?:\s*(k|thousand|ksh))?/i);
+    if (numMatch) {
+        amount = parseFloat(numMatch[1]);
+        if (numMatch[2]) amount *= 1000;
+    }
+
+    // Classify spending
+    let category = "general";
+    let isBasic = false;
+    let isObligationFlag = isObligation(rawQ);
+
+    const basicKeywords = ["rent", "food", "porridge", "school", "fees", "fuel", "transport", "transport & fuel", "utilities", "salary"];
+    const luxuryKeywords = ["beer", "party", "club", "turn up", "shopping", "clothes", "shoes", "mall", "drink", "outing"];
+
+    if (basicKeywords.some(k => q.includes(k)) || isObligationFlag) {
+        isBasic = true;
+        category = isObligationFlag ? "monthly obligation" : "basic need";
+    }
+    if (luxuryKeywords.some(k => q.includes(k))) {
+        category = "luxury / secondary";
+    }
+
+    // Daily cap logic
+    const overDaily = amount > status.dailyCap;
+    const newDailyAfter = fin.daysRem > 0 ? Math.floor((fin.safeCash - amount) / fin.daysRem) : 0;
+    const fallbackAmount = Math.floor(status.dailyCap * 0.7);
+
+    // Build response
+    let msg = `<div class="text-5xl mb-2">🧠</div>`;
+    msg += `<div class="text-[#4ade80] text-2xl mb-4">You asked: "${rawQ}"</div>`;
+
+    // Acknowledgment
+    if (amount > 0) {
+        msg += `<div class="text-xl">You're considering spending KSh ${amount.toLocaleString()} on <span class="text-yellow-400">${category}</span>.</div>`;
+    } else if (q.includes("how is") || q.includes("business") || q.includes("doing") || q.includes("status") || q.includes("habit")) {
+        msg += `<div class="text-xl">Let me give you a quick read on your situation today...</div>`;
+    } else {
+        msg += `<div class="text-xl">Got it — let's talk money.</div>`;
+    }
+
+    // Status
+    let riskColor = status.riskColor;
+    msg += `<div class="mt-4">Current status: <span style="color:${riskColor}">${status.riskLabel} RISK</span> • Daily cap: KSh ${status.dailyCap}</div>`;
+
+    // Consequence & Verdict
+    if (amount > 0) {
+        let consequenceColor = "#4ade80";
+        let consequence = "";
+        let verdict = "";
+
+        if (isObligationFlag || isBasic) {
+            if (overDaily) {
+                consequenceColor = "#eab308";
+                consequence = `This is important, but it's above your daily cap (KSh ${status.dailyCap}). After this, you'd only have KSh ${newDailyAfter} per day left.`;
+                verdict = `If I were you, I'd cap it at KSh ${fallbackAmount} today so you still have decent room for the next ${status.daysRem - 1} days.`;
+            } else {
+                consequence = `This fits inside your daily cap — safe for a necessary spend.`;
+                verdict = `Go ahead. This is within reach.`;
+            }
+        } else { // luxury / secondary
+            if (overDaily) {
+                consequenceColor = "#ef4444";
+                consequence = `This is a luxury spend and it's well above your daily cap. After this, you'd be left with only KSh ${newDailyAfter} per day — tight squeeze.`;
+                verdict = `Strong advice: don't do the full amount. If you really want it, limit to KSh ${fallbackAmount} today. Better to keep buffer for emergencies.`;
+            } else {
+                consequence = `It's within daily cap but it's not essential.`;
+                verdict = `You can do it, but think twice — is it worth the pattern? Log it so we can watch.`;
+            }
+        }
+
+        msg += `<div style="color:${consequenceColor}; margin-top:12px; font-weight:bold;">${consequence}</div>`;
+        msg += `<div class="mt-6 text-2xl font-bold">${verdict}</div>`;
+    } else if (q.includes("how is") || q.includes("business") || q.includes("doing") || q.includes("status")) {
+        if (status.riskLabel === "LOW") {
+            msg += `<div class="mt-6 text-2xl font-bold text-[#4ade80]">Business is looking stable today. No red flags — keep the same discipline and the next few days should stay calm.</div>`;
+        } else if (status.riskLabel === "MODERATE") {
+            msg += `<div class="mt-6 text-2xl font-bold text-[#eab308]">Yellow zone — things are okay but watch spending. Next 3 days look manageable if we stay disciplined.</div>`;
+        } else {
+            msg += `<div class="mt-6 text-2xl font-bold text-[#ef4444]">Tight right now. Next few days could be stressful unless we cut back hard.</div>`;
+        }
+    } else if (q.includes("habit") || q.includes("spending habit")) {
+        msg += `<div class="mt-6 text-2xl font-bold">Your recent spending looks moderate — mostly within cap. But we've had a few lifestyle questions lately... let's tighten up a bit to stay green.</div>`;
+    } else {
+        msg += `<div class="mt-6 text-2xl font-bold">Everything still looks stable. Anything specific you want to plan for?</div>`;
+    }
+
+    // Memory nudge
+    if (travisMemory.conversationCount > 5 && Math.random() > 0.6) {
+        msg += `<div class="mt-6 text-xs italic text-yellow-300">Noticing a pattern of spending questions... want me to lock in a weekly cap so we stay safer?</div>`;
+    }
+
+    // Append
+    box.innerHTML += `<div class="text-right"><span class="user-msg text-sm inline-block">${rawQ}</span></div>`;
+    box.innerHTML += `<div class="text-left flex gap-2"><div class="text-[#4ade80] font-black text-[10px] mt-1">TRV:</div><span class="travis-msg text-sm inline-block">${msg}</span></div>`;
+
+    input.value = "";
+    box.scrollTop = box.scrollHeight;
+}
+
+// ================== ALL YOUR OTHER FUNCTIONS (unchanged) ==================
+function nav(view) {
+    const port = document.getElementById('view-port');
+    const fin = getFin();
+    updateHeader(fin);
+
+    if(view === 'dash') {
+        const risk = calculateInsolvencyRisk();
+        const leaks = fin.obsStatus.filter(o => o.variance > 0);
+        
+        port.innerHTML = `
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div class="lg:col-span-1 space-y-4">
+                    <div class="glass p-6 border-l-4" style="border-color: ${risk.color}">
+                        <p class="text-[10px] opacity-40 uppercase tracking-widest">Insolvency Risk Score</p>
+                        <h1 class="text-4xl font-black mb-3" style="color: ${risk.color}">${risk.label}</h1>
+                        <div class="risk-heatmap overflow-hidden"><div class="bg-white/20 h-full" style="width: ${100 - risk.score}%"></div></div>
+                        <p class="text-[9px] mt-2 opacity-50 italic">Based on 7D Velocity vs. Projected Ceiling.</p>
+                    </div>
+
+                    <div class="glass p-6 border-l-4 border-red-500 bg-red-950/10">
+                        <p class="text-[10px] text-red-500 font-bold uppercase tracking-widest mb-4">Leak Finder</p>
+                        <div class="space-y-1">
+                            ${leaks.length > 0 ? leaks.map(l => `<div class="flex justify-between border-b border-red-900/30 py-2"><span class="text-xs uppercase">${l.label}</span><span class="leak-red font-bold">+KSh ${l.variance.toLocaleString()}</span></div>`).join('') : '<p class="text-[10px] opacity-30 italic">No budget variances detected.</p>'}
+                        </div>
+                    </div>
+
+                    <div class="glass p-6 border-l-4 border-[#4ade80]">
+                        <p class="text-[10px] opacity-40 uppercase tracking-widest">Disposable Buffer</p>
+                        <h1 class="text-4xl font-black">KSh ${fin.safeCash.toLocaleString()}</h1>
+                    </div>
+                </div>
+                <div class="lg:col-span-2 glass p-6 neon-border relative min-h-[350px]">
+                    <h3 class="text-xs font-black uppercase tracking-widest text-slate-400 mb-4">Performance Analytics</h3>
+                    <div class="h-[300px]"><canvas id="analyticsChart"></canvas></div>
+                </div>
+            </div>`;
+        setTimeout(() => renderChart(), 100);
+    }
+    
+    if(view === 'obs') {
+        let rows = fin.obsStatus.map(o => `
+            <div class="flex justify-between items-center p-4 bg-slate-900 border-b border-slate-800">
+                <div><p class="font-bold uppercase">${o.label}</p><p class="text-[10px] opacity-40 uppercase">Budget: ${o.amount.toLocaleString()} | Spent: ${o.paid.toLocaleString()}</p></div>
+                <div class="text-right">
+                    <p class="${o.pending <= 0 ? 'text-green-400' : 'text-yellow-500'} font-black text-sm uppercase">${o.pending <= 0 ? 'Settled' : 'KSh ' + o.pending.toLocaleString()}</p>
+                    ${o.variance > 0 ? `<p class="text-[9px] text-red-500 font-bold uppercase tracking-tighter">+${o.variance.toLocaleString()} OVER</p>` : ''}
+                </div>
+            </div>`).join('');
+        port.innerHTML = `<div class="glass p-6 neon-border">
+            <div class="flex justify-between items-center mb-6"><h3 class="text-2xl font-black uppercase italic">Mandatory Reserve</h3><button onclick="document.getElementById('setup-overlay').classList.remove('hidden')" class="text-[10px] border border-slate-700 px-2 py-1">EDIT LIST</button></div>
+            ${rows || '<p class="opacity-30">No obligations.</p>'}
+            <button onclick="factoryReset()" class="mt-20 text-red-900 text-[10px] font-bold uppercase tracking-widest hover:text-red-500">Full System Wipe</button>
+        </div>`;
+    }
+
+    if(view === 'ask') {
+        port.innerHTML = `<div class="max-w-4xl glass p-6 mx-auto flex flex-col h-[550px] neon-border">
+            <div id="chat-box" class="flex-1 overflow-y-auto space-y-4 mb-4 pr-2 flex flex-col">
+                <div class="travis-msg text-xs italic">Probability Engine and Leak Finder active. How can I protect your capital?</div>
+            </div>
+            <div class="flex gap-2 p-2 bg-slate-900 border-2 border-slate-800">
+                <input id="chat-input" type="text" placeholder="Consult Travis..." class="flex-1 p-4 bg-transparent border-none">
+                <button onclick="handleAsk()" class="bg-[#4ade80] text-black px-8 font-black rounded uppercase">Send</button>
+            </div>
+        </div>`;
+        document.getElementById('chat-input').addEventListener('keypress', (e) => { if(e.key === 'Enter') handleAsk(); });
+    }
+
+    if(view === 'book') {
+        let rows = state.transactions.map(t => {
+            const amountStr = t.amount.toLocaleString();
+            return `
+                <tr class="border-b border-slate-800 text-sm hover:bg-slate-900/50 transition-colors">
+                    <td class="p-4 opacity-40 font-bold text-[10px]">
+                        ${new Date(t.id).toLocaleDateString('en-KE')}
+                    </td>
+                    <td class="p-4">
+                        <div class="font-black italic uppercase text-slate-200">${t.desc}</div>
+                        <div class="flex items-center gap-2 mt-1">
+                            <span class="text-[9px] bg-green-900/30 text-green-400 px-1 rounded font-bold">${t.debit}</span>
+                            <span class="text-[9px] opacity-30">←</span>
+                            <span class="text-[9px] bg-red-900/30 text-red-400 px-1 rounded font-bold">${t.credit}</span>
+                        </div>
+                    </td>
+                    <td class="p-4 text-right text-green-400 font-black tracking-tighter">
+                        +${amountStr}
+                    </td>
+                    <td class="p-4 text-right text-red-400 font-black tracking-tighter">
+                        -${amountStr}
+                    </td>
+                </tr>`;
+        }).join('');
+
+        port.innerHTML = `
+            <div class="glass overflow-hidden rounded-xl border border-slate-800">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="bg-slate-900/80 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                            <th class="p-4 border-b border-slate-800">Date</th>
+                            <th class="p-4 border-b border-slate-800">Transaction Details</th>
+                            <th class="p-4 border-b border-slate-800 text-right">Debit (+)</th>
+                            <th class="p-4 border-b border-slate-800 text-right">Credit (-)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rows || '<tr><td colspan="4" class="p-10 text-center opacity-30 italic font-bold uppercase tracking-widest">No entries found in the archives.</td></tr>'}
+                    </tbody>
+                </table>
+            </div>`;
+    }
+}
+
+function renderChart() {
+    const ctx = document.getElementById('analyticsChart')?.getContext('2d');
+    if (!ctx) return;
+    const fin = getFin();
+    const now = new Date();
+    let labels = []; let spendData = []; let revData = []; let capData = [];
+
+    for (let i = 6; i >= 0; i--) {
+        const d = new Date(); d.setDate(now.getDate() - i);
+        labels.push(d.toLocaleDateString('en-KE', { weekday: 'short' }));
+        let ds = 0, dr = 0;
+        state.transactions.forEach(t => {
+            if (new Date(t.id).toDateString() === d.toDateString()) {
+                if (isLiquid(t.credit)) ds += t.amount;
+                if (isLiquid(t.debit)) dr += t.amount;
+            }
+        });
+        spendData.push(ds); revData.push(dr); capData.push(fin.daily);
+    }
+
+    if (window.travisChart) window.travisChart.destroy();
+    window.travisChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [
+                { label: 'CEILING', data: capData, borderColor: '#3b82f6', borderDash: [5, 5], pointRadius: 0, fill: false },
+                { label: 'SPEND', data: spendData, borderColor: '#ef4444', backgroundColor: 'rgba(239, 68, 68, 0.1)', fill: true, tension: 0.4 },
+                { label: 'REVENUE', data: revData, borderColor: '#4ade80', backgroundColor: 'rgba(74, 222, 128, 0.1)', fill: true, tension: 0.4 }
+            ]
+        },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#94a3b8', font: { size: 10 } } } } }
+    });
+}
+
+function updateHeader(fin) {
+    const grid = document.getElementById('dashboard-grid');
+    grid.innerHTML = `
+        <div class="glass p-4 border-l-4 border-blue-500"><p class="text-[10px] opacity-40 uppercase">Total Liquid</p><p class="text-xl font-bold">KSh ${fin.liquid.toLocaleString()}</p></div>
+        <div class="glass p-4 border-l-4 border-red-500"><p class="text-[10px] opacity-40 uppercase">Reserved Bills</p><p class="text-xl font-bold">KSh ${fin.pending.toLocaleString()}</p></div>
+        <div class="glass p-4 border-l-4 border-[#4ade80]"><p class="text-[10px] opacity-40 uppercase">Survival Window</p><p class="text-xl font-bold">${fin.daysRem} Days</p></div>
+        <div class="glass p-4 border-l-4 border-purple-500"><p class="text-[10px] opacity-40 uppercase">Daily Ceiling</p><p class="text-xl font-bold">KSh ${Math.max(0, fin.daily).toFixed(0)}</p></div>
+    `;
+    const v = document.getElementById('header-verdict');
+    v.innerText = fin.safeCash < 0 ? "⚠️ INSOLVENT" : "🛡️ SYSTEM STABLE";
+    v.className = fin.safeCash < 0 ? "px-4 py-2 border-2 border-red-500 text-red-500 rounded font-black animate-pulse" : "px-4 py-2 border-2 border-[#4ade80] text-[#4ade80] rounded font-black";
+}
+
+function isLiquid(acc) { return ["Cash", "M-Pesa", "Bank/M-Pesa", "Petty Cash"].includes(acc); }
+
+function getBalance(acc) {
+    let balance = 0;
+    state.transactions.forEach(t => {
+        if(t.debit === acc) balance += t.amount;
+        if(t.credit === acc) balance -= t.amount;
+    });
+    const assetTypes = ["Cash", "M-Pesa", "Bank/M-Pesa", "Petty Cash", "Inventory", "Stock", "Tools"];
+    return assetTypes.includes(acc) ? balance : -balance;
+}
+
+function showTxModal() {
+    const d = document.getElementById('tx-debit');
+    const c = document.getElementById('tx-credit');
+    d.innerHTML = c.innerHTML = "";
+    const list = state.user.type === 'personal' ? 
+        ["Cash", "M-Pesa", "Salary", "Food", "Rent", "Bills", "Party", "Transport", "Savings"] : 
+        ["Bank/M-Pesa", "Petty Cash", "Sales Revenue", "Inventory", "Rent", "Payroll", "Utilities", "Marketing", "Tax"];
+    list.forEach(a => { d.add(new Option(a, a)); c.add(new Option(a, a)); });
+    document.getElementById('tx-modal').classList.remove('hidden');
+    updateLiveHud();
+}
+
+async function commitTransaction() {
+    const amt = parseFloat(document.getElementById('tx-amount').value);
+    const debitAcc = document.getElementById('tx-debit').value;
+    const creditAcc = document.getElementById('tx-credit').value;
+    const description = document.getElementById('tx-desc').value || "Market Exchange";
+
+    if(debitAcc === creditAcc || isNaN(amt) || amt <= 0) {
+        return alert("Strategy Error: A transaction must move value between two different accounts.");
+    }
+
+    const tx = { 
+        id: Date.now(), 
+        debit: debitAcc, 
+        credit: creditAcc, 
+        amount: amt, 
+        desc: description 
+    };
+
+    state.transactions.unshift(tx);
+    await saveData("tx", tx);
+    
+    console.log(`SYSTEM UPDATE: ${debitAcc} increased by ${amt}, ${creditAcc} decreased by ${amt}.`);
+    
+    closeTxModal();
+    nav('dash');
+}
+
+function addObligationRow(label = "", val = "") {
+    const div = document.createElement('div');
+    div.className = "flex gap-2";
+    div.innerHTML = `<input type="text" placeholder="Rent" value="${label}" class="flex-1 p-2 text-sm"><input type="number" placeholder="KSh" value="${val}" class="w-24 p-2 text-sm"><button onclick="this.parentElement.remove()" class="text-red-500 font-bold">×</button>`;
+    document.getElementById('obligation-list').appendChild(div);
+}
+
+function setUserType(t) {
+    state.tempType = t;
+    document.getElementById('btn-p').style.borderColor = t==='personal'?'#4ade80':'#334155';
+    document.getElementById('btn-b').style.borderColor = t==='business'?'#4ade80':'#334155';
+}
+
+async function finalizeSetup() {
+    const name = document.getElementById('user-name').value;
+    const obs = Array.from(document.querySelectorAll('#obligation-list > div')).map(row => ({
+        label: row.querySelectorAll('input')[0].value,
+        amount: parseFloat(row.querySelectorAll('input')[1].value) || 0
+    })).filter(o => o.label);
+    if(!name || !state.tempType) return alert("System requires ID.");
+    state.user = { name, type: state.tempType };
+    state.obligations = obs;
+    await saveData("meta", { id: "config", user: state.user, obligations: state.obligations });
+    location.reload();
+}
+
+async function factoryReset() {
+    if(confirm("Confirm system purge? All financial history will be deleted.")) {
+        indexedDB.deleteDatabase("TravisGuardian_v5_8");
+        location.reload();
+    }
+}
+async function boot() {
+    await initDB();
+    const meta = await getData("meta", "config");
+    if(meta) {
+        state.user = meta.user;
+        state.obligations = meta.obligations;
+        state.transactions = (await getAllData("tx")).sort((a,b) => b.id - a.id);
+        document.getElementById('display-name').innerText = state.user.name;
+        document.getElementById('display-mode').innerText = state.user.type + " STRATEGY ENGINE";
+        nav('dash');
+    } else {
+        document.getElementById('setup-overlay').classList.remove('hidden');
+    }
+}
+
+async function saveData(s, d) { const t = db.transaction(s, "readwrite"); t.objectStore(s).put(d); return new Promise(res => t.oncomplete = res); }
+async function getData(s, k) { const t = db.transaction(s, "readonly"); const r = t.objectStore(s).get(k); return new Promise(res => r.onsuccess = () => res(r.result)); }
+async function getAllData(s) { const t = db.transaction(s, "readonly"); const r = t.objectStore(s).getAll(); return new Promise(res => r.onsuccess = () => res(r.result)); }
+function closeTxModal() { document.getElementById('tx-modal').classList.add('hidden'); document.getElementById('tx-amount').value = ""; }
+
+window.onload = boot;
+
+// ================== BOOT LOGIC – IMPROVED ==================
+async function boot() {
+  await initDB();
+  let meta = await getData("meta", "config") || { activated: false };
+
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches ||
+                       navigator.standalone === true;
+
+  // Give SW a moment to activate
+  await new Promise(r => setTimeout(r, 800));
+
+  if (!meta.activated) {
+    if (isStandalone) {
+      document.getElementById('activation-overlay').classList.remove('hidden');
+      document.getElementById('install-overlay').classList.add('hidden');
+      document.getElementById('app').classList.add('hidden');
+    } else {
+      document.getElementById('install-overlay').classList.remove('hidden');
+      document.getElementById('activation-overlay').classList.add('hidden');
+      document.getElementById('app').classList.add('hidden');
+    }
+  } else if (!meta.user) {
+    document.getElementById('setup-overlay').classList.remove('hidden');
+    document.getElementById('install-overlay').classList.add('hidden');
+    document.getElementById('app').classList.add('hidden');
+  } else {
+    state.user = meta.user;
+    state.obligations = meta.obligations;
+    state.transactions = (await getAllData("tx")).sort((a,b) => b.id - a.id);
+    document.getElementById('display-name').innerText = state.user.name;
+    document.getElementById('display-mode').innerText = state.user.type + " STRATEGY ENGINE";
+    document.getElementById('app').classList.remove('hidden');
+    document.getElementById('install-overlay').classList.add('hidden');
+    document.getElementById('setup-overlay').classList.add('hidden');
+    nav('dash');
+  }
+}
+
+// ================== EVENT LISTENERS ==================
+document.getElementById('install-btn')?.addEventListener('click', triggerInstall);
+
+// Keep all your other functions here (handleAsk, nav, etc.)
+
+window.onload = boot;
+</script>
+</body>
+</html>
+

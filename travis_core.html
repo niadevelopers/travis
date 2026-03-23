@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Travis Guardian v5.8 | Full Production Machine</title>
+    <link rel="manifest" href="manifest.json">
+    <link rel="stylesheet" href="tailwind-app.css">
+    <style>
+        body { font-family: 'Space+Grotesk', sans-serif; background-color: #020617; color: #f8fafc; margin: 0; }
+        .glass { background: rgba(15, 23, 42, 0.9); backdrop-filter: blur(12px); border: 1px solid rgba(74, 222, 128, 0.2); }
+        .neon-border { border: 2px solid #4ade80; box-shadow: 0 0 15px rgba(74, 222, 128, 0.3); }
+        .btn-elite { transition: all 0.2s; border: 2px solid #4ade80; cursor: pointer; }
+        .btn-elite:hover { background: #4ade80; color: #020617; }
+        .user-msg { background: #1e293b; padding: 12px; border-radius: 12px 12px 0 12px; align-self: flex-end; max-width: 80%; }
+        .travis-msg { background: #064e3b; border-left: 4px solid #4ade80; padding: 12px; border-radius: 0 12px 12px 12px; align-self: flex-start; max-width: 80%; }
+        input, select { background: #0f172a !important; color: white !important; outline: none; border: 2px solid #334155; transition: border 0.3s; }
+        input:focus { border-color: #4ade80; }
+        .leak-red { color: #ef4444; text-shadow: 0 0 8px rgba(239, 68, 68, 0.4); }
+        .velocity-fast { color: #ef4444; text-shadow: 0 0 10px rgba(239, 68, 68, 0.5); }
+        .progress-bg { background: #1e293b; height: 8px; border-radius: 4px; overflow: hidden; }
+        .progress-fill { height: 100%; transition: width 0.5s ease-in-out; }
+        .risk-heatmap { background: linear-gradient(90deg, #4ade80 0%, #eab308 50%, #ef4444 100%); height: 4px; border-radius: 2px; }
+
+* {
+    -ms-overflow-style: none;     
+    scrollbar-width: none;       
+}
+
+*::-webkit-scrollbar {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+}
+
+html, body, .glass, .neon-border, #view-port, #chat-box, #obligation-list {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+
+html::-webkit-scrollbar,
+body::-webkit-scrollbar,
+.glass::-webkit-scrollbar,
+.neon-border::-webkit-scrollbar,
+#view-port::-webkit-scrollbar,
+#chat-box::-webkit-scrollbar,
+#obligation-list::-webkit-scrollbar {
+    display: none !important;
+}
+    </style>
+</head>
+<body class="p-4 md:p-8">
+
+<div id="install-overlay" class="fixed inset-0 bg-[#020617] z-[9999] flex items-center justify-center p-4">
+    <div class="max-w-md w-full glass p-10 border-4 border-[#4ade80] text-center">
+        <h1 class="text-5xl font-black mb-2 italic text-[#4ade80]">TRAVIS <span class="text-white">v5.8</span></h1>
+        <p class="text-3xl font-black mb-6 text-white">INSTALL REQUIRED</p>
+        <p class="text-xl mb-8 text-slate-400">This application runs only as a secure standalone app.<br>Browser tabs are blocked for security reasons.</p>
+        <div class="bg-red-950/30 border border-red-500/50 p-4 rounded mb-8">
+            <p class="text-red-400 text-sm font-bold">Device fingerprint will be sent to server on install.</p>
+            <p class="text-[10px] text-slate-400 mt-1">Admin will provide your activation code after.</p>
+        </div>
+        <button id="install-btn" class="w-full bg-[#4ade80] text-black py-6 text-3xl font-black btn-elite">
+            INSTALL APP NOW
+        </button>
+        <p id="install-status" class="text-sm mt-6 text-slate-300">Preparing install…</p>
+        <p class="text-[10px] mt-8 opacity-50">Must install to continue. No bypass.</p>
+    </div>
+</div>
+
+<div id="activation-overlay" class="fixed inset-0 bg-[#020617] z-[100] flex items-center justify-center p-4 hidden">
+    <div class="max-w-md w-full glass p-10 border-4 border-[#4ade80] text-center">
+        <h1 class="text-5xl font-black mb-2 italic text-[#4ade80]">TRAVIS <span class="text-white">v5.8</span></h1>
+        <p class="text-3xl font-black mb-6 text-white">DEVICE ACTIVATION</p>
+        <p class="text-slate-400 mb-8">Device fingerprinted.<br>Enter code provided by admin.</p>
+        <div class="bg-slate-900 p-6 rounded-xl mb-8">
+            <label class="block text-[#4ade80] text-sm font-bold mb-3">ACTIVATION CODE</label>
+            <input id="act-code" type="text" placeholder="TRV-KE-XXXXXXXX-5634" 
+                   class="w-full p-5 text-2xl font-mono text-center tracking-widest bg-[#0f172a] border-2 border-[#4ade80]/50 rounded-xl focus:border-[#4ade80]">
+        </div>
+        <button onclick="attemptActivation()" class="w-full bg-[#4ade80] text-black py-6 text-3xl font-black btn-elite">ACTIVATE</button>
+        <div class="mt-8 text-xs text-slate-400">
+            <span onclick="location.reload()" class="cursor-pointer hover:text-white underline">Reload</span>
+        </div>
+    </div>
+</div>
+
+<div id="setup-overlay" class="fixed inset-0 bg-[#020617] z-[100] flex items-center justify-center p-4 hidden">
+    <div class="max-w-4xl w-full glass p-10 border-4 border-[#4ade80] max-h-[90vh] overflow-y-auto">
+        <h1 class="text-5xl font-black mb-2 italic text-[#4ade80]">TRAVIS <span class="text-white">v5.8</span></h1>
+        <p class="text-xl mb-8 text-slate-400">Production-Ready Intelligence</p>
+        <div class="grid grid-cols-2 gap-4 mb-8">
+            <button id="btn-p" onclick="setUserType('personal')" class="p-6 border-2 border-slate-700 font-bold">PERSONAL</button>
+            <button id="btn-b" onclick="setUserType('business')" class="p-6 border-2 border-slate-700 font-bold">BUSINESS</button>
+        </div>
+        <div class="space-y-6">
+            <input id="user-name" type="text" placeholder="Entity Name" class="w-full p-4 text-xl">
+            <div class="bg-slate-900/50 p-6 border-2 border-slate-800">
+                <div class="flex justify-between items-center mb-4">
+                    <p class="text-[#4ade80] font-bold text-sm uppercase">Monthly Mandatory Obligations</p>
+                    <button onclick="addObligationRow()" class="text-xs bg-[#4ade80] text-black px-3 py-1 font-bold">+ ADD</button>
+                </div>
+                <div id="obligation-list" class="space-y-3"></div>
+            </div>
+        </div>
+        <button onclick="finalizeSetup()" class="w-full mt-8 bg-[#4ade80] text-black py-6 text-3xl font-black btn-elite">ACTIVATE MACHINE</button>
+    </div>
+</div>
+
+<div id="app" class="max-w-7xl mx-auto hidden"> 
+       <header class="flex justify-between items-end mb-8 border-b-2 border-slate-800 pb-6">
+        <div>
+            <h2 id="display-name" class="text-4xl font-black uppercase tracking-tighter">---</h2>
+            <p id="display-mode" class="text-[#4ade80] font-mono uppercase text-sm tracking-widest">---</p>
+        </div>
+        <div id="header-verdict" class="px-4 py-2 border-2 border-[#4ade80] rounded font-black uppercase tracking-widest">SYSTEM READY</div>
+    </header>
+
+    <div id="dashboard-grid" class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8"></div>
+
+    <nav class="flex flex-wrap gap-2 mb-8">
+        <button onclick="nav('dash')" class="btn-elite px-6 py-2 font-bold uppercase">Dashboard</button>
+        <button onclick="nav('ask')" class="bg-blue-600 text-white px-6 py-2 font-bold hover:bg-blue-500 uppercase">Consult Travis</button>
+        <button onclick="nav('obs')" class="bg-yellow-600 text-white px-6 py-2 font-bold hover:bg-yellow-500 uppercase">Obligations</button>
+        <button onclick="showTxModal()" class="bg-[#4ade80] text-black px-6 py-2 font-bold uppercase">New Entry</button>
+        <button onclick="nav('book')" class="btn-elite px-6 py-2 font-bold uppercase">Ledger</button>
+    </nav>
+
+    <main id="view-port" class="min-h-[500px]"></main>
+</div>
+
+<div id="tx-modal" class="fixed inset-0 bg-black/95 z-[200] hidden flex items-center justify-center p-4">
+    <div class="max-w-xl w-full glass p-8 neon-border">
+        <div id="live-hud" class="mb-6 p-4 bg-slate-900 border border-[#4ade80]/30 rounded space-y-2">
+            <div class="flex justify-between text-[10px] uppercase font-bold">
+                <span class="text-slate-400">New Daily Cap:</span>
+                <span id="hud-cap" class="text-[#4ade80]">KSh 0</span>
+            </div>
+            <div class="flex justify-between text-[10px] uppercase font-bold">
+                <span class="text-slate-400">Coverage:</span>
+                <span id="hud-cover" class="text-white">RESERVED</span>
+            </div>
+            <div id="hud-warning" class="text-[9px] text-red-500 font-black uppercase animate-pulse hidden italic text-center pt-1 border-t border-red-900/50">High Risk: Exceeds Survival Ceiling</div>
+        </div>
+        
+        <div class="space-y-4">
+            <div><label class="text-[#4ade80] block mb-1 text-[10px] font-bold">SOURCE (Debit)</label><select id="tx-debit" class="w-full p-4 border-2 border-slate-700"></select></div>
+            <div><label class="text-[#ef4444] block mb-1 text-[10px] font-bold">DESTINATION (Credit)</label><select id="tx-credit" class="w-full p-4 border-2 border-slate-700"></select></div>
+            <input id="tx-amount" type="number" oninput="updateLiveHud()" placeholder="Amount (KSh)" class="w-full p-4 text-2xl font-bold">
+            <input id="tx-desc" type="text" placeholder="Description/Note" class="w-full p-4">
+        </div>
+        <div class="grid grid-cols-2 gap-4 mt-8">
+            <button onclick="commitTransaction()" class="bg-[#4ade80] text-black py-4 font-black uppercase">Post To Ledger</button>
+            <button onclick="closeTxModal()" class="border-2 border-slate-700 text-slate-400 font-bold uppercase">Cancel</button>
+        </div>
+    </div>
+
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>
+
