@@ -1,849 +1,1171 @@
-const _0x42411d = _0x409f;
-(function(_0x1f993d, _0x2bc25) {
-    const _0x3ce284 = _0x409f,
-        _0xcd7086 = _0x1f993d();
-    while (!![]) {
-        try {
-            const _0x52cbb9 = parseInt(_0x3ce284(0x219)) / 0x1 + -parseInt(_0x3ce284(0x35f)) / 0x2 + parseInt(_0x3ce284(0x299)) / 0x3 + parseInt(_0x3ce284(0x2f1)) / 0x4 * (-parseInt(_0x3ce284(0x36b)) / 0x5) + parseInt(_0x3ce284(0x31f)) / 0x6 * (-parseInt(_0x3ce284(0x337)) / 0x7) + parseInt(_0x3ce284(0x213)) / 0x8 + -parseInt(_0x3ce284(0x2d4)) / 0x9 * (-parseInt(_0x3ce284(0x376)) / 0xa);
-            if (_0x52cbb9 === _0x2bc25) break;
-            else _0xcd7086['push'](_0xcd7086['shift']());
-        } catch (_0xee6c6a) {
-            _0xcd7086['push'](_0xcd7086['shift']());
-        }
-    }
-}(_0x3115, 0xb8107));
+function showCustomAlert(message, callback = null) {
+    const alertBox = document.getElementById('custom-alert');
+    const messageEl = document.getElementById('custom-alert-message');
+    const okBtn = document.getElementById('custom-alert-ok');
 
-function showCustomAlert(_0x144642, _0x599e04 = null) {
-    const _0x3c711d = _0x409f,
-        _0x48737a = document[_0x3c711d(0x320)](_0x3c711d(0x21d)),
-        _0x1ed2c9 = document[_0x3c711d(0x320)](_0x3c711d(0x338)),
-        _0xb41a3b = document[_0x3c711d(0x320)](_0x3c711d(0x374));
-    _0x1ed2c9[_0x3c711d(0x37b)] = _0x144642, _0x48737a[_0x3c711d(0x2d7)][_0x3c711d(0x26a)] = 'flex';
-    const _0x16a778 = _0xb41a3b['cloneNode'](!![]);
-    _0xb41a3b[_0x3c711d(0x341)][_0x3c711d(0x25b)](_0x16a778, _0xb41a3b), _0x16a778['addEventListener']('click', () => {
-        const _0x2a991a = _0x3c711d;
-        _0x48737a[_0x2a991a(0x2d7)][_0x2a991a(0x26a)] = 'none', _0x599e04 && typeof _0x599e04 === 'function' && _0x599e04();
+    messageEl.innerHTML = message;
+    alertBox.style.display = 'flex';
+
+    const newOkBtn = okBtn.cloneNode(true);
+    okBtn.parentNode.replaceChild(newOkBtn, okBtn);
+
+    newOkBtn.addEventListener('click', () => {
+        alertBox.style.display = 'none';
+        if (callback && typeof callback === 'function') {
+            callback();
+        }
     });
 }
-_0x42411d(0x380) in navigator && window[_0x42411d(0x377)](_0x42411d(0x34e), () => {
-    const _0x2d65bc = _0x42411d;
-    navigator[_0x2d65bc(0x380)][_0x2d65bc(0x24d)](_0x2d65bc(0x2db))[_0x2d65bc(0x27d)](_0x15fe8d => {})[_0x2d65bc(0x345)](_0x11ed06 => {
-        const _0x2b44e8 = _0x2d65bc;
-        console[_0x2b44e8(0x2ea)]('Service\x20Worker\x20registration\x20failed:', _0x11ed06), document[_0x2b44e8(0x320)]('install-status')[_0x2b44e8(0x311)] = _0x2b44e8(0x315);
-    });
-});
+
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js')
+      .then(reg => {
+      })
+      .catch(err => {
+        console.error('Service Worker registration failed:', err);
+        document.getElementById('install-status').innerText = 'Service worker failed – install may not work';
+      });
+  });
+}
+
 let deferredPrompt = null;
-window[_0x42411d(0x377)]('beforeinstallprompt', _0x19c7bc => {
-    const _0x5e6f66 = _0x42411d;
-    _0x19c7bc[_0x5e6f66(0x28b)](), deferredPrompt = _0x19c7bc, document[_0x5e6f66(0x320)](_0x5e6f66(0x368))[_0x5e6f66(0x311)] = _0x5e6f66(0x346), document['getElementById'](_0x5e6f66(0x225))[_0x5e6f66(0x237)] = ![];
-}), window['addEventListener'](_0x42411d(0x2ff), () => {
-    const _0x651170 = _0x42411d;
-    document['getElementById'](_0x651170(0x368))['innerText'] = _0x651170(0x2df);
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredPrompt = e;
+  document.getElementById('install-status').innerText = 'Ready to install – click below';
+  document.getElementById('install-btn').disabled = false;
 });
+
+window.addEventListener('appinstalled', () => {
+  document.getElementById('install-status').innerText = 'Installed! Reopen from home screen.';
+});
+
 async function triggerInstall() {
-    const _0x4e485e = _0x42411d;
-    await sendFingerprint();
-    if (deferredPrompt) {
-        deferredPrompt[_0x4e485e(0x231)]();
-        const {
-            outcome: _0x31febc
-        } = await deferredPrompt[_0x4e485e(0x2c8)];
-        deferredPrompt = null, _0x31febc === _0x4e485e(0x23c) ? (document[_0x4e485e(0x320)](_0x4e485e(0x1f8))[_0x4e485e(0x27f)][_0x4e485e(0x211)](_0x4e485e(0x31d)), showCustomAlert(_0x4e485e(0x1fb))) : showCustomAlert('Install\x20cancelled.<br><br>\x20You\x20must\x20install\x20to\x20continue.');
-    } else document[_0x4e485e(0x320)](_0x4e485e(0x368))[_0x4e485e(0x311)] = _0x4e485e(0x2e6), showCustomAlert(_0x4e485e(0x215));
+  await sendFingerprint(); 
+
+  if (deferredPrompt) {
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    deferredPrompt = null;
+
+    if (outcome === 'accepted') {
+      document.getElementById('install-overlay').classList.add('hidden');
+      showCustomAlert('Installed!<br><br> Close this tab → open from home screen to activate.');
+    } else {
+      showCustomAlert('Install cancelled.<br><br> You must install to continue.');
+    }
+  } else {
+    document.getElementById('install-status').innerText = 'Install not available yet – check console / Lighthouse';
+    showCustomAlert('App already installed');
+  }
 }
+
 
 function generateFingerprint() {
-    const _0xc1039c = _0x42411d;
-    let _0x213ac7 = localStorage['getItem']('fp');
-    if (_0x213ac7 && _0x213ac7['length'] === 0x20) return _0x213ac7;
-    const _0x385923 = (function() {
-            const _0x880d10 = _0x409f;
-            try {
-                const _0x47c2f3 = document[_0x880d10(0x289)]('canvas');
-                _0x47c2f3['width'] = 0x100, _0x47c2f3['height'] = 0x3c;
-                const _0x3ab8d1 = _0x47c2f3[_0x880d10(0x294)]('2d');
-                return _0x3ab8d1['textBaseline'] = _0x880d10(0x285), _0x3ab8d1[_0x880d10(0x279)] = _0x880d10(0x223), _0x3ab8d1[_0x880d10(0x2d9)] = '#f60', _0x3ab8d1['fillRect'](0x7d, 0x1, 0x3e, 0x14), _0x3ab8d1[_0x880d10(0x2d9)] = _0x880d10(0x350), _0x3ab8d1[_0x880d10(0x259)](_0x880d10(0x32a), 0x2, 0xf), _0x3ab8d1[_0x880d10(0x2d9)] = 'rgba(102,\x20204,\x200,\x200.7)', _0x3ab8d1[_0x880d10(0x259)]('TravisGuardian\x20•\x202026', 0x4, 0x11), _0x47c2f3['toDataURL']();
-            } catch (_0x522dc2) {
-                return _0x880d10(0x37f);
-            }
-        }()),
-        _0xbb570f = [navigator['userAgent'] || _0xc1039c(0x32e), navigator['language'] || _0xc1039c(0x340), navigator[_0xc1039c(0x35e)] || '0', screen[_0xc1039c(0x28d)] + '×' + screen[_0xc1039c(0x28f)] + '×' + (screen[_0xc1039c(0x257)] || 0x0), screen['availWidth'] + '×' + screen['availHeight'], new Date()['getTimezoneOffset'](), Intl['DateTimeFormat']()['resolvedOptions']()['timeZone'] || _0xc1039c(0x307), _0x385923[_0xc1039c(0x2c9)](0x0, 0xc8)][_0xc1039c(0x2dd)](_0xc1039c(0x27b));
-    let _0x1a1749 = 0x1505;
-    for (let _0x1be248 = 0x0; _0x1be248 < _0xbb570f[_0xc1039c(0x1f1)]; _0x1be248++) {
-        _0x1a1749 = (_0x1a1749 << 0x5) + _0x1a1749 + _0xbb570f[_0xc1039c(0x348)](_0x1be248) | 0x0;
+
+    let saved = localStorage.getItem('fp');
+    if (saved && saved.length === 32) {
+        return saved;
     }
-    let _0x1a671d = '';
-    while (_0x1a671d[_0xc1039c(0x1f1)] < 0x20) {
-        _0x1a1749 = _0x1a1749 * 0x1f + 0x9e3779b9 | 0x0, _0x1a671d += (Math[_0xc1039c(0x288)](_0x1a1749) % 0x24)[_0xc1039c(0x2e9)](0x24)[_0xc1039c(0x2c3)]();
+
+    const canvas = (function() {
+        try {
+            const c = document.createElement('canvas');
+            c.width = 256; c.height = 60;
+            const ctx = c.getContext('2d');
+            ctx.textBaseline = "top";
+            ctx.font = "14px 'Arial'";
+            ctx.fillStyle = "#f60";
+            ctx.fillRect(125, 1, 62, 20);
+            ctx.fillStyle = "#069";
+            ctx.fillText("TravisGuardian • 2026", 2, 15);
+            ctx.fillStyle = "rgba(102, 204, 0, 0.7)";
+            ctx.fillText("TravisGuardian • 2026", 4, 17);
+            return c.toDataURL(); 
+        } catch(e) { return 'canvas-fail'; }
+    })();
+
+    const signals = [
+        navigator.userAgent || 'UA-unknown',
+        navigator.language || 'xx-XX',
+        navigator.hardwareConcurrency || '0',
+        screen.width + '×' + screen.height + '×' + (screen.colorDepth || 0),
+        screen.availWidth + '×' + screen.availHeight,
+        new Date().getTimezoneOffset(),
+        Intl.DateTimeFormat().resolvedOptions().timeZone || 'tz-unknown',
+        canvas.substring(0, 200), 
+    ].join('|||');
+
+
+    let hash = 5381;
+    for (let i = 0; i < signals.length; i++) {
+        hash = ((hash << 5) + hash + signals.charCodeAt(i)) | 0;
     }
-    return _0x1a671d = _0x1a671d[_0xc1039c(0x2c9)](0x0, 0x20), localStorage[_0xc1039c(0x268)]('fp', _0x1a671d), _0x1a671d;
+
+    let fp = '';
+    while (fp.length < 32) {
+        hash = (hash * 31 + 0x9E3779B9) | 0; 
+        fp += (Math.abs(hash) % 36).toString(36).toUpperCase();
+    }
+    fp = fp.substring(0, 32);
+
+    localStorage.setItem('fp', fp);
+
+    return fp;
 }
 
-function encryptFingerprint(_0x3e2e25) {
-    const _0x26fbb3 = _0x42411d,
-        _0x2bcc9e = _0x26fbb3(0x30b);
-    let _0x3ca921 = '';
-    for (let _0x3c68a0 = 0x0; _0x3c68a0 < _0x3e2e25['length']; _0x3c68a0++) {
-        _0x3ca921 += String['fromCharCode'](_0x3e2e25[_0x26fbb3(0x348)](_0x3c68a0) ^ _0x2bcc9e['charCodeAt'](_0x3c68a0 % _0x2bcc9e['length']));
+function encryptFingerprint(fp) {
+    const key = "TRAVIS-GUARDIAN-SECURE-2026-x7k9";
+    let encrypted = '';
+    for (let i = 0; i < fp.length; i++) {
+        encrypted += String.fromCharCode(fp.charCodeAt(i) ^ key.charCodeAt(i % key.length));
     }
-    const _0x43a7d2 = btoa(_0x3ca921);
-    return _0x43a7d2;
+    const base64 = btoa(encrypted);
+    return base64;
 }
+
 async function sendFingerprint() {
-    const _0x22633f = _0x42411d,
-        _0x29b665 = generateFingerprint(),
-        _0x26fc58 = encryptFingerprint(_0x29b665),
-        _0x45c71a = {
-            'data': _0x26fc58,
-            'ts': Date[_0x22633f(0x322)](),
-            'buyerInfo': navigator[_0x22633f(0x36d)] + _0x22633f(0x2b3) + screen['width'] + 'x' + screen[_0x22633f(0x28f)] + '×' + screen['colorDepth']
-        };
+
+    const fp = generateFingerprint();
+    const encrypted = encryptFingerprint(fp);
+
+    const payload = {
+        data: encrypted,
+        ts: Date.now(),
+        buyerInfo: `${navigator.userAgent} | ${screen.width}x${screen.height}×${screen.colorDepth}`
+    };
+
+
     try {
-        const _0x48872d = await fetch(_0x22633f(0x370), {
-            'method': 'POST',
-            'headers': {
-                'Content-Type': _0x22633f(0x260)
-            },
-            'body': JSON[_0x22633f(0x306)](_0x45c71a)
+        const res = await fetch('/activate-fingerprint', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
         });
-        if (!_0x48872d['ok']) console[_0x22633f(0x296)](_0x22633f(0x360), await _0x48872d[_0x22633f(0x23d)]());
-        else {}
-    } catch (_0x4e46c9) {
-        console['error'](_0x22633f(0x29c), _0x4e46c9);
+
+
+        if (!res.ok) {
+            console.warn('Server rejected:', await res.text());
+        } else {
+        }
+    } catch (err) {
+        console.error(' Network / server error:', err);
     }
+
 }
+
 async function attemptActivation() {
-    const _0x5e2666 = _0x42411d,
-        _0x4a2e65 = document['getElementById'](_0x5e2666(0x35b))[_0x5e2666(0x375)]['trim']()[_0x5e2666(0x2c3)]()[_0x5e2666(0x252)](/[^0-9A-Z-]/g, ''),
-        _0x454171 = localStorage[_0x5e2666(0x2d1)]('fp');
-    if (!_0x454171 || _0x454171[_0x5e2666(0x1f1)] !== 0x20) {
-        showCustomAlert(_0x5e2666(0x334));
+    const entered = document.getElementById('act-code').value
+        .trim()
+        .toUpperCase()
+        .replace(/[^0-9A-Z-]/g, '');
+
+    const fp = localStorage.getItem('fp');
+
+    if (!fp || fp.length !== 32) {
+        showCustomAlert("No valid device fingerprint found.<br><br>Please restart installation process.");
         return;
     }
-    const _0x5008e1 = _0x454171['slice'](0x3, 0xb),
-        _0x47e87c = _0x5e2666(0x236) + _0x5008e1 + _0x5e2666(0x208);
-    if (_0x4a2e65 === _0x47e87c) {
-        let _0x2ac7c5 = await getData(_0x5e2666(0x369), _0x5e2666(0x22f)) || {};
-        await saveData(_0x5e2666(0x369), {
-            ..._0x2ac7c5,
-            'id': _0x5e2666(0x22f),
-            'activated': !![],
-            'fingerprint': _0x454171,
-            'activatedAt': Date[_0x5e2666(0x322)]()
-        }), document['getElementById'](_0x5e2666(0x302))[_0x5e2666(0x27f)][_0x5e2666(0x211)](_0x5e2666(0x31d)), location[_0x5e2666(0x30a)]();
-    } else showCustomAlert(_0x5e2666(0x25c)), document[_0x5e2666(0x320)](_0x5e2666(0x35b))[_0x5e2666(0x375)] = '', document['getElementById'](_0x5e2666(0x35b))[_0x5e2666(0x22d)]();
+
+
+    const next8 = fp.slice(3, 11);
+    const expected = `TRV-KE-${next8}-5634`;
+
+    if (entered === expected) {
+        let meta = await getData("meta", "config") || {};
+        await saveData("meta", {
+            ...meta,
+            id: "config",
+            activated: true,
+            fingerprint: fp,
+            activatedAt: Date.now()
+        });
+
+        document.getElementById('activation-overlay').classList.add('hidden');
+        location.reload();
+    } else {
+        showCustomAlert("Invalid activation code.");
+        document.getElementById('act-code').value = '';
+        document.getElementById('act-code').focus();
+    }
 }
-let db, backupDirHandle = null,
-    state = {
-        'user': null,
-        'transactions': [],
-        'obligations': []
-    };
-const BACKUP_FILE = _0x42411d(0x2f8);
-async function getData(_0x10566c, _0xe8642d) {
-    const _0x411326 = _0x42411d;
+
+let db;
+let backupDirHandle = null; 
+let state = { user: null, transactions: [], obligations: [] };
+
+const BACKUP_FILE = "travis-finance-backup.json";
+
+// ====================== HELPERS ======================
+
+async function getData(storeName, id) {
     if (!db) return null;
     try {
-        const _0x56f3af = db[_0x411326(0x287)](_0x10566c, _0x411326(0x316)),
-            _0x532b9b = _0x56f3af[_0x411326(0x258)](_0x10566c);
-        return new Promise(_0x2b5432 => {
-            const _0x4aecd2 = _0x411326,
-                _0x5ab006 = _0x532b9b[_0x4aecd2(0x310)](_0xe8642d);
-            _0x5ab006['onsuccess'] = () => _0x2b5432(_0x5ab006[_0x4aecd2(0x1f2)]), _0x5ab006[_0x4aecd2(0x26e)] = () => _0x2b5432(null);
+        const tx = db.transaction(storeName, "readonly");
+        const store = tx.objectStore(storeName);
+        return new Promise((resolve) => {
+            const req = store.get(id);
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => resolve(null);
         });
-    } catch (_0x1b5d43) {
+    } catch (e) {
         return null;
     }
 }
-async function getAllData(_0x1f5203) {
-    const _0x2ab7d4 = _0x42411d;
+
+async function getAllData(storeName) {
     if (!db) return [];
     try {
-        const _0x4a32ce = db[_0x2ab7d4(0x287)](_0x1f5203, _0x2ab7d4(0x316)),
-            _0x4836ac = _0x4a32ce[_0x2ab7d4(0x258)](_0x1f5203);
-        return new Promise(_0x4a79c0 => {
-            const _0x11b424 = _0x2ab7d4,
-                _0x14956d = _0x4836ac[_0x11b424(0x207)]();
-            _0x14956d[_0x11b424(0x33e)] = () => _0x4a79c0(_0x14956d['result']), _0x14956d['onerror'] = () => _0x4a79c0([]);
+        const tx = db.transaction(storeName, "readonly");
+        const store = tx.objectStore(storeName);
+        return new Promise((resolve) => {
+            const req = store.getAll();
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => resolve([]);
         });
-    } catch (_0x2ddac5) {
+    } catch (e) {
         return [];
     }
 }
+
+// ====================== UI ASSETS BACKUP ======================
 async function backupUIAssets() {
-    const _0x2ddb36 = _0x42411d;
     if (!backupDirHandle) return;
-    const _0x5208ce = [{
-        'name': _0x2ddb36(0x2fd)
-    }, {
-        'name': 'tailwind-app.css'
-    }, {
-        'name': _0x2ddb36(0x29a)
-    }, {
-        'name': _0x2ddb36(0x2ee)
-    }, {
-        'name': 'input-app.css'
-    }, {
-        'name': _0x2ddb36(0x218)
-    }];
-    for (const _0x3feab1 of _0x5208ce) {
+
+    const criticalFiles = [
+        { name: "index.html" },
+        { name: "tailwind-app.css" },
+        { name: "script.js" },
+        { name: "sw.js" },
+        { name: "input-app.css" }
+    ];
+
+    for (const file of criticalFiles) {
         try {
-            const _0x5d149d = await fetch(_0x3feab1[_0x2ddb36(0x2af)]);
-            if (!_0x5d149d['ok']) continue;
-            const _0xfa6e37 = await _0x5d149d[_0x2ddb36(0x273)](),
-                _0x4a7f42 = await backupDirHandle[_0x2ddb36(0x2bb)](_0x3feab1[_0x2ddb36(0x2af)], {
-                    'create': !![]
-                }),
-                _0x40b71b = await _0x4a7f42[_0x2ddb36(0x2aa)]();
-            await _0x40b71b['write'](_0xfa6e37), await _0x40b71b['close']();
-        } catch (_0x2ce4f8) {
-            console[_0x2ddb36(0x296)](_0x2ddb36(0x1fa) + _0x3feab1[_0x2ddb36(0x2af)], _0x2ce4f8);
+            const response = await fetch(file.name);
+            if (!response.ok) continue;
+
+            const blob = await response.blob();
+            const fileHandle = await backupDirHandle.getFileHandle(file.name, { create: true });
+            const writable = await fileHandle.createWritable();
+            await writable.write(blob);
+            await writable.close();
+
+            console.log(`✅ UI file backed up: ${file.name}`);
+        } catch (e) {
+            console.warn(`Failed to backup ${file.name}`, e);
         }
     }
+    console.log("✅ All UI assets backed up to device folder");
 }
+
+// ====================== REBUILD UI FROM DEVICE (runs on every boot when possible) ======================
 async function rebuildUIFromDevice() {
-    const _0x12e734 = _0x42411d;
-    if (!backupDirHandle) return ![];
+    if (!backupDirHandle) return false;
+
     try {
-        const _0x335f91 = [_0x12e734(0x2fd), _0x12e734(0x21c), _0x12e734(0x29a), _0x12e734(0x2ee), _0x12e734(0x23b)],
-            _0x102c85 = await caches[_0x12e734(0x200)](_0x12e734(0x272));
-        for (const _0x5cd04e of _0x335f91) {
-            const _0x45fff7 = await backupDirHandle['getFileHandle'](_0x5cd04e),
-                _0xf3273d = await _0x45fff7['getFile'](),
-                _0x37d337 = await _0xf3273d[_0x12e734(0x25e)]();
-            await _0x102c85[_0x12e734(0x25d)]('/' + _0x5cd04e, new Response(_0x37d337, {
-                'headers': {
-                    'Content-Type': _0x5cd04e[_0x12e734(0x23f)](_0x12e734(0x201)) ? _0x12e734(0x332) : _0x5cd04e[_0x12e734(0x23f)](_0x12e734(0x20f)) ? _0x12e734(0x203) : _0x12e734(0x327)
+        const uiFiles = ["index.html", "tailwind-app.css", "script.js", "sw.js", "input-app.css"];
+        const cache = await caches.open("travis-ui-cache-v1");
+
+        for (const filename of uiFiles) {
+            const fileHandle = await backupDirHandle.getFileHandle(filename);
+            const file = await fileHandle.getFile();
+            const buffer = await file.arrayBuffer();
+
+            await cache.put(`/${filename}`, new Response(buffer, {
+                headers: { 
+                    "Content-Type": filename.endsWith(".css") ? "text/css" : 
+                                   filename.endsWith(".js") ? "text/javascript" : "text/html" 
                 }
             }));
         }
-        return !![];
-    } catch (_0x22a757) {
-        return console['error']('UI\x20rebuild\x20failed', _0x22a757), ![];
+        console.log("✅ UI rebuilt from device folder on this boot");
+        return true;
+    } catch (e) {
+        console.error("UI rebuild failed", e);
+        return false;
     }
 }
+
+// ====================== SILENT BACKUP ======================
 async function saveBackup() {
-    const _0x374900 = _0x42411d;
     if (!backupDirHandle || !db) return;
+
     try {
-        const _0x4e1ecd = {};
-        for (const _0x22f672 of [_0x374900(0x369), 'tx']) {
-            const _0x31d84d = db[_0x374900(0x287)](_0x22f672, _0x374900(0x316)),
-                _0x4b06f4 = _0x31d84d[_0x374900(0x258)](_0x22f672);
-            _0x4e1ecd[_0x22f672] = await new Promise(_0x4c39b9 => {
-                const _0x3014f7 = _0x374900,
-                    _0x48dabc = _0x4b06f4[_0x3014f7(0x207)]();
-                _0x48dabc[_0x3014f7(0x33e)] = () => _0x4c39b9(_0x48dabc[_0x3014f7(0x1f2)]), _0x48dabc[_0x3014f7(0x26e)] = () => _0x4c39b9([]);
+        const backupData = {};
+
+        for (const storeName of ["meta", "tx"]) {
+            const t = db.transaction(storeName, "readonly");
+            const store = t.objectStore(storeName);
+            backupData[storeName] = await new Promise(res => {
+                const r = store.getAll();
+                r.onsuccess = () => res(r.result);
+                r.onerror = () => res([]);
             });
         }
-        const _0x1f552c = JSON[_0x374900(0x306)](_0x4e1ecd, null, 0x2),
-            _0xc823ef = await backupDirHandle['getFileHandle'](BACKUP_FILE, {
-                'create': !![]
-            }),
-            _0xb5d25d = await _0xc823ef[_0x374900(0x2aa)]();
-        await _0xb5d25d[_0x374900(0x2d6)](_0x1f552c), await _0xb5d25d[_0x374900(0x305)]();
-    } catch (_0x33a64c) {
-        console['error'](_0x374900(0x20a), _0x33a64c);
+
+        const json = JSON.stringify(backupData, null, 2);
+
+        const fileHandle = await backupDirHandle.getFileHandle(BACKUP_FILE, { create: true });
+        const writable = await fileHandle.createWritable();
+        await writable.write(json);
+        await writable.close();
+
+        console.log("✅ Silent backup saved");
+    } catch (e) {
+        console.error("Silent backup failed", e);
     }
 }
+
+// ====================== RESTORE HELPERS ======================
 async function readBackupContent() {
-    const _0x3fa7c7 = _0x42411d;
     try {
-        if (!window['tempBackupFileHandle']) return console[_0x3fa7c7(0x296)](_0x3fa7c7(0x2d0)), {
-            'data': null,
-            'error': _0x3fa7c7(0x212)
-        };
-        const _0x819982 = await window['tempBackupFileHandle'][_0x3fa7c7(0x25f)](),
-            _0x496463 = await _0x819982[_0x3fa7c7(0x23d)](),
-            _0x50c59a = JSON[_0x3fa7c7(0x366)](_0x496463);
-        return {
-            'data': _0x50c59a,
-            'error': null
-        };
-    } catch (_0x53b84a) {
-        return console[_0x3fa7c7(0x2ea)]('Failed\x20to\x20read/parse\x20backup\x20file:', _0x53b84a), {
-            'data': null,
-            'error': _0x53b84a[_0x3fa7c7(0x35a)] || String(_0x53b84a)
-        };
+        if (!window.tempBackupFileHandle) {
+            console.warn("No backup file handle available");
+            return { data: null, error: "No file handle" };
+        }
+
+        const file = await window.tempBackupFileHandle.getFile();
+        const text = await file.text();
+        const data = JSON.parse(text);
+
+        return { data, error: null };
+    } catch (e) {
+        console.error("Failed to read/parse backup file:", e);
+        return { data: null, error: e.message || String(e) };
     }
 }
+
 async function restoreFromBackup() {
-    const _0x205d5a = _0x42411d,
-        {
-            data: _0x3ec7aa,
-            error: _0x2362fe
-        } = await readBackupContent();
-    if (_0x2362fe) return console[_0x205d5a(0x2ea)](_0x205d5a(0x22e), _0x2362fe), {
-        'success': ![],
-        'error': _0x205d5a(0x329) + _0x2362fe
-    };
-    if (!_0x3ec7aa) return {
-        'success': ![],
-        'error': _0x205d5a(0x248)
-    };
+    const { data: backup, error: readError } = await readBackupContent();
+    if (readError) {
+        console.error("Restore aborted - read error:", readError);
+        return { success: false, error: `Could not read the backup file: ${readError}` };
+    }
+    if (!backup) {
+        return { success: false, error: "Backup file was empty or invalid" };
+    }
+
     try {
-        for (const _0x95973 of [_0x205d5a(0x369), 'tx']) {
-            if (!_0x3ec7aa[_0x95973] || !Array['isArray'](_0x3ec7aa[_0x95973])) continue;
-            const _0x44bd88 = db['transaction'](_0x95973, _0x205d5a(0x281)),
-                _0x3de844 = _0x44bd88['objectStore'](_0x95973);
-            await new Promise((_0x2fb4ae, _0xda4f87) => {
-                const _0x209663 = _0x205d5a,
-                    _0x47c8cf = _0x3de844[_0x209663(0x35c)]();
-                _0x47c8cf[_0x209663(0x33e)] = _0x2fb4ae, _0x47c8cf['onerror'] = () => _0xda4f87(_0x47c8cf[_0x209663(0x2ea)]);
+        for (const storeName of ["meta", "tx"]) {
+            if (!backup[storeName] || !Array.isArray(backup[storeName])) continue;
+
+            const tx = db.transaction(storeName, "readwrite");
+            const store = tx.objectStore(storeName);
+
+            await new Promise((res, rej) => {
+                const clearReq = store.clear();
+                clearReq.onsuccess = res;
+                clearReq.onerror = () => rej(clearReq.error);
             });
-            for (const _0x1eea71 of _0x3ec7aa[_0x95973]) {
-                await new Promise((_0x1fae17, _0x4f8ccb) => {
-                    const _0x2c63f5 = _0x205d5a,
-                        _0x4b8bd9 = _0x3de844[_0x2c63f5(0x25d)](_0x1eea71);
-                    _0x4b8bd9[_0x2c63f5(0x33e)] = _0x1fae17, _0x4b8bd9[_0x2c63f5(0x26e)] = () => _0x4f8ccb(_0x4b8bd9[_0x2c63f5(0x2ea)]);
+
+            for (const item of backup[storeName]) {
+                await new Promise((res, rej) => {
+                    const putReq = store.put(item);
+                    putReq.onsuccess = res;
+                    putReq.onerror = () => rej(putReq.error);
                 });
             }
-            await new Promise(_0x100ffa => {
-                const _0x12059e = _0x205d5a;
-                _0x44bd88[_0x12059e(0x2e8)] = _0x100ffa;
-            });
+
+            await new Promise((res) => { tx.oncomplete = res; });
         }
-        let _0x34ea61 = null;
-        const _0xe311e2 = await getData(_0x205d5a(0x369), 'config');
-        if (_0xe311e2?.[_0x205d5a(0x2ab)]) _0x34ea61 = _0xe311e2['fingerprint'];
-        else {
-            if (_0x3ec7aa[_0x205d5a(0x369)]) {
-                const _0x14aa67 = _0x3ec7aa[_0x205d5a(0x369)][_0x205d5a(0x278)](_0x5a04aa => _0x5a04aa && _0x5a04aa['id'] === _0x205d5a(0x22f));
-                _0x34ea61 = _0x14aa67?.['fingerprint'] || null;
-            }
+
+        let fp = null;
+        const config = await getData("meta", "config");
+        if (config?.fingerprint) {
+            fp = config.fingerprint;
+        } else if (backup.meta) {
+            const cfgItem = backup.meta.find(item => item && item.id === "config");
+            fp = cfgItem?.fingerprint || null;
         }
-        return _0x34ea61 && localStorage[_0x205d5a(0x268)]('fp', _0x34ea61), {
-            'success': !![],
-            'error': null
-        };
-    } catch (_0x25d568) {
-        return console[_0x205d5a(0x2ea)](_0x205d5a(0x381), _0x25d568), {
-            'success': ![],
-            'error': 'Failed\x20to\x20write\x20data\x20to\x20database:\x20' + (_0x25d568[_0x205d5a(0x35a)] || String(_0x25d568))
-        };
+
+        if (fp) {
+            localStorage.setItem("fp", fp);
+        }
+
+        return { success: true, error: null };
+
+    } catch (e) {
+        console.error("Restore operation failed during write:", e);
+        return { success: false, error: `Failed to write data to database: ${e.message || String(e)}` };
     }
 }
+
+// ====================== SETUP BACKUP FOLDER ======================
 async function setupBackupFolder() {
-    const _0x556078 = _0x42411d;
-    if (_0x556078(0x30c) in window) try {
-        backupDirHandle = await window[_0x556078(0x30c)]({
-            'mode': _0x556078(0x281),
-            'startIn': _0x556078(0x358)
-        });
-        const _0x6dc910 = db[_0x556078(0x287)](_0x556078(0x369), _0x556078(0x281));
-        return await _0x6dc910[_0x556078(0x258)](_0x556078(0x369))[_0x556078(0x25d)]({
-            'id': _0x556078(0x36c),
-            'value': backupDirHandle
-        }), await _0x6dc910['done'], await backupUIAssets(), !![];
-    } catch (_0x4de779) {
-        return console[_0x556078(0x296)](_0x556078(0x303), _0x4de779), ![];
-    }
-    return console[_0x556078(0x274)]('📱\x20Mobile:\x20Full\x20silent\x20folder\x20backup\x20not\x20supported.'), ![];
-}
-async function manualRestoreFlow() {
-    const _0x3ea777 = _0x42411d;
-    try {
-        let _0x5987bb;
-        if (_0x3ea777(0x21b) in window) {
-            const [_0x70a9ea] = await window[_0x3ea777(0x21b)]({
-                'types': [{
-                    'description': _0x3ea777(0x21f),
-                    'accept': {
-                        'application/json': [_0x3ea777(0x2bd)]
-                    }
-                }],
-                'multiple': ![]
+    if ('showDirectoryPicker' in window) {
+        try {
+            backupDirHandle = await window.showDirectoryPicker({
+                mode: "readwrite",
+                startIn: "documents"
             });
-            _0x5987bb = _0x70a9ea;
-        } else return alert(_0x3ea777(0x1f6)), {
-            'success': ![],
-            'error': 'File\x20picker\x20not\x20supported'
-        };
-        window[_0x3ea777(0x2b1)] = _0x5987bb;
-        const _0x3f4845 = await restoreFromBackup();
-        delete window[_0x3ea777(0x2b1)];
-        if (_0x3f4845[_0x3ea777(0x349)]) return await rebuildUIFromDevice(), await backupUIAssets(), {
-            'success': !![]
-        };
-        return {
-            'success': ![],
-            'error': _0x3ea777(0x31c)
-        };
-    } catch (_0x4bfcdc) {
-        return console['error'](_0x3ea777(0x2cc), _0x4bfcdc), {
-            'success': ![],
-            'error': _0x3ea777(0x255)
-        };
+
+            const tx = db.transaction("meta", "readwrite");
+            await tx.objectStore("meta").put({ id: "backupHandle", value: backupDirHandle });
+            await tx.done;
+
+            console.log("✅ Desktop: Persistent folder backup enabled");
+            await backupUIAssets();
+            return true;
+        } catch (err) {
+            console.warn("User cancelled folder picker", err);
+            return false;
+        }
+    }
+
+    console.log("📱 Mobile: Full silent folder backup not supported.");
+    return false;
+}
+
+// ====================== MANUAL RESTORE FLOW ======================
+async function manualRestoreFlow() {
+    try {
+        let fileHandle;
+
+        if ('showOpenFilePicker' in window) {
+            const [handle] = await window.showOpenFilePicker({
+                types: [{
+                    description: "Travis Finance Backup",
+                    accept: { "application/json": [".json"] }
+                }],
+                multiple: false
+            });
+            fileHandle = handle;
+        } else {
+            alert("Your browser does not support file selection.");
+            return { success: false, error: "File picker not supported" };
+        }
+
+        window.tempBackupFileHandle = fileHandle;
+
+        const result = await restoreFromBackup();
+
+        delete window.tempBackupFileHandle;
+
+        if (result.success) {
+            await rebuildUIFromDevice();
+            await backupUIAssets();
+            return { success: true };
+        }
+        return { success: false, error: "Restore failed" };
+
+    } catch (err) {
+        console.error("Restore flow error:", err);
+        return { success: false, error: "User cancelled or error occurred" };
     }
 }
+
+// ====================== RECOVERY ON START - FIXED & RELIABLE ======================
 async function runRecoveryOnStart() {
-    const _0x3f509e = _0x42411d,
-        _0x50ea90 = document[_0x3f509e(0x320)](_0x3f509e(0x251));
-    if (!_0x50ea90) return;
-    _0x50ea90[_0x3f509e(0x27f)]['add']('hidden');
+    const overlay = document.getElementById("recovery-overlay");
+    if (!overlay) return;
+
+    overlay.classList.add("hidden");
+
+    // Load saved handle (if it still exists)
     try {
-        const _0x1cf412 = await getData(_0x3f509e(0x369), 'backupHandle');
-        if (_0x1cf412?.[_0x3f509e(0x375)]) backupDirHandle = _0x1cf412['value'];
-    } catch (_0x4ba639) {}
-    const _0x31487f = !!await getData('meta', _0x3f509e(0x22f)),
-        _0x135e56 = !!localStorage[_0x3f509e(0x2d1)]('fp');
-    if (_0x31487f && _0x135e56) {
-        console[_0x3f509e(0x274)](_0x3f509e(0x224));
+        const result = await getData("meta", "backupHandle");
+        if (result?.value) backupDirHandle = result.value;
+    } catch (e) {}
+
+    const hasConfig = !!(await getData("meta", "config"));
+    const hasFp = !!localStorage.getItem("fp");
+
+    // === NORMAL HEALTHY STARTUP ===
+    if (hasConfig && hasFp) {
+        console.log("✅ Normal healthy startup - no recovery needed");
         return;
     }
-    backupDirHandle && (console[_0x3f509e(0x274)](_0x3f509e(0x32d)), await rebuildUIFromDevice());
-    _0x50ea90[_0x3f509e(0x27f)][_0x3f509e(0x2a2)](_0x3f509e(0x31d)), _0x50ea90[_0x3f509e(0x37b)] = _0x3f509e(0x361);
-    const _0x429c61 = document[_0x3f509e(0x320)](_0x3f509e(0x1ff)),
-        _0x49c70b = document[_0x3f509e(0x320)](_0x3f509e(0x220));
-    _0x429c61['replaceWith'](_0x429c61['cloneNode'](!![])), _0x49c70b['replaceWith'](_0x49c70b[_0x3f509e(0x233)](!![])), document[_0x3f509e(0x320)]('restore-btn')[_0x3f509e(0x1ef)] = async () => {
-        const _0x5401b9 = _0x3f509e,
-            _0x228114 = document['getElementById']('restore-btn');
-        _0x228114['disabled'] = !![], _0x228114['textContent'] = _0x5401b9(0x24e);
-        const _0x4aa599 = await manualRestoreFlow();
-        _0x4aa599[_0x5401b9(0x349)] ? (await backupUIAssets(), _0x50ea90[_0x5401b9(0x37b)] = _0x5401b9(0x2ef), setTimeout(() => location[_0x5401b9(0x30a)](), 0x4b0)) : _0x50ea90[_0x5401b9(0x37b)] = _0x5401b9(0x362) + (_0x4aa599[_0x5401b9(0x2ea)] || 'Restore\x20failed') + _0x5401b9(0x372);
-    }, document['getElementById']('skip-btn')[_0x3f509e(0x1ef)] = () => _0x50ea90[_0x3f509e(0x27f)]['add'](_0x3f509e(0x31d));
-};
-async function startFingerprintBackgroundProbe() {
-    const _0x286490 = async () => {
-        const _0x398a33 = _0x409f;
-        if (localStorage[_0x398a33(0x2d1)]('fp')) return !![];
-        const _0xe3ab13 = await getData(_0x398a33(0x369), _0x398a33(0x22f));
-        if (_0xe3ab13?.['fingerprint']) return localStorage[_0x398a33(0x268)]('fp', _0xe3ab13['fingerprint']), !![];
-        return ![];
+
+    // === TRY TO REBUILD UI FROM DEVICE FIRST (even on full wipe if handle somehow survived) ===
+    if (backupDirHandle) {
+        console.log("🔄 Rebuilding UI from device files before showing recovery...");
+        await rebuildUIFromDevice();
+    }
+
+    // === SHOW RECOVERY OVERLAY FOR ANY DATA LOSS (this is what was broken before) ===
+    console.log("⚠️ Data loss / missing config/fp detected - showing recovery overlay");
+
+    overlay.classList.remove("hidden");
+
+    overlay.innerHTML = `
+        <div style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.78);display:flex;align-items:center;justify-content:center;z-index:9999;font-family:system-ui,sans-serif;">
+            <div style="background:white;border-radius:16px;max-width:460px;width:92%;box-shadow:0 25px 70px rgba(0,0,0,0.3);overflow:hidden;">
+                <div style="background:linear-gradient(135deg,#1e3a8a,#3b82f6);color:white;padding:28px 24px;text-align:center;">
+                    <h2 style="margin:0 0 8px 0;font-size:1.5rem;">🔒 Travis Guardian</h2>
+                    <p style="margin:0;opacity:0.95;">Your Personal Financial Advisor</p>
+                </div>
+                <div style="padding:32px 28px;text-align:center;">
+                    <div style="width:70px;height:70px;background:#f0f9ff;color:#1e40af;font-size:36px;border-radius:50%;margin:0 auto 20px;display:flex;align-items:center;justify-content:center;border:5px solid #e0f2fe;">📁</div>
+                    <h3 style="margin:0 0 16px 0;font-size:1.35rem;color:#1e3a8a;">Restore Everything?</h3>
+                    <p style="color:#475569;line-height:1.6;margin-bottom:28px;font-size:1.02rem;">
+                        Browser data was cleared.<br>
+                        Select your backup file to restore <strong>financial data + UI</strong>.
+                    </p>
+                    <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:20px;">
+                        <button id="restore-btn" style="background:#1e40af;color:white;border:none;padding:16px 24px;font-size:1.05rem;font-weight:600;border-radius:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;">📂 Select Backup File & Restore All</button>
+                        <button id="skip-btn" style="background:transparent;color:#64748b;border:2px solid #cbd5e1;padding:14px 24px;font-size:1rem;font-weight:500;border-radius:10px;cursor:pointer;">Continue as New User</button>
+                    </div>
+                    <p style="margin:0;font-size:0.82rem;color:#64748b;">First-time users: choose “Continue as New User”</p>
+                </div>
+            </div>
+        </div>
+    `;
+
+    const restoreBtn = document.getElementById("restore-btn");
+    const skipBtn = document.getElementById("skip-btn");
+
+    restoreBtn.replaceWith(restoreBtn.cloneNode(true));
+    skipBtn.replaceWith(skipBtn.cloneNode(true));
+
+    document.getElementById("restore-btn").onclick = async () => {
+        const btn = document.getElementById("restore-btn");
+        btn.disabled = true;
+        btn.textContent = "Restoring data + UI...";
+
+        const result = await manualRestoreFlow();
+
+        if (result.success) {
+            await backupUIAssets();
+            overlay.innerHTML = `<div style="padding:50px;text-align:center;background:white;border-radius:16px;max-width:400px;"><p style="color:green;font-size:19px;">✅ Everything restored!<br>Reloading nice UI...</p></div>`;
+            setTimeout(() => location.reload(), 1200);
+        } else {
+            overlay.innerHTML = `<div style="padding:30px;text-align:center;color:red;background:white;border-radius:16px;"><p>❌ ${result.error || "Restore failed"}</p><button onclick="location.reload()" style="margin-top:15px;padding:12px 24px;">Try Again</button></div>`;
+        }
     };
-    setTimeout(() => _0x286490(), 0x50);
-    let _0x4f48a2 = 0x0;
-    const _0x3a2772 = setInterval(async () => {
-        _0x4f48a2++;
-        if (await _0x286490() || _0x4f48a2 > 0xc) clearInterval(_0x3a2772);
-    }, 0x1388);
-}
-async function initDB() {
-    return new Promise(_0x48eb63 => {
-        const _0x5646a0 = _0x409f,
-            _0xe06a37 = indexedDB[_0x5646a0(0x200)](_0x5646a0(0x382), 0x1);
-        _0xe06a37[_0x5646a0(0x385)] = _0x2967fd => {
-            const _0x445934 = _0x5646a0,
-                _0x1388e3 = _0x2967fd['target'][_0x445934(0x1f2)];
-            if (!_0x1388e3[_0x445934(0x2c6)][_0x445934(0x32b)]('meta')) _0x1388e3[_0x445934(0x330)](_0x445934(0x369), {
-                'keyPath': 'id'
-            });
-            if (!_0x1388e3[_0x445934(0x2c6)][_0x445934(0x32b)]('tx')) _0x1388e3[_0x445934(0x330)]('tx', {
-                'keyPath': 'id'
-            });
-        }, _0xe06a37[_0x5646a0(0x33e)] = async _0x4bb82d => {
-            const _0x363b98 = _0x5646a0;
-            db = _0x4bb82d[_0x363b98(0x31b)][_0x363b98(0x1f2)], startFingerprintBackgroundProbe(), await runRecoveryOnStart(), _0x48eb63();
-        }, _0xe06a37[_0x5646a0(0x26e)] = () => _0x48eb63();
-    });
-}
-let travisMemory = {
-    'conversationCount': 0x0,
-    'lastQuestion': '',
-    'lastPurpose': '',
-    'lastVerdict': ''
+
+    document.getElementById("skip-btn").onclick = () => overlay.classList.add("hidden");
 };
 
-function isObligation(_0x5cd144) {
-    const _0x8e6b4a = _0x42411d;
-    if (!state[_0x8e6b4a(0x2bf)] || state[_0x8e6b4a(0x2bf)][_0x8e6b4a(0x1f1)] === 0x0) return ![];
-    return state[_0x8e6b4a(0x2bf)]['some'](_0x3d862a => _0x5cd144[_0x8e6b4a(0x304)]()[_0x8e6b4a(0x35d)](_0x3d862a['label']['toLowerCase']()));
+// ====================== FINGERPRINT PROBE ======================
+async function startFingerprintBackgroundProbe() {
+    const tryRestoreFP = async () => {
+        if (localStorage.getItem("fp")) return true;
+
+        const config = await getData("meta", "config");
+        if (config?.fingerprint) {
+            localStorage.setItem("fp", config.fingerprint);
+            return true;
+        }
+        return false;
+    };
+
+    setTimeout(() => tryRestoreFP(), 80);
+
+    let attempts = 0;
+    const interval = setInterval(async () => {
+        attempts++;
+        if (await tryRestoreFP() || attempts > 12) clearInterval(interval);
+    }, 5000);
+}
+
+// ====================== INIT ======================
+async function initDB() {
+    return new Promise((resolve) => {
+        const req = indexedDB.open("TravisGuardian_v1.0", 1);
+
+        req.onupgradeneeded = (e) => {
+            const d = e.target.result;
+            if (!d.objectStoreNames.contains("meta")) d.createObjectStore("meta", { keyPath: "id" });
+            if (!d.objectStoreNames.contains("tx")) d.createObjectStore("tx", { keyPath: "id" });
+        };
+
+        req.onsuccess = async (e) => {
+            db = e.target.result;
+
+            startFingerprintBackgroundProbe();
+            await runRecoveryOnStart();
+
+            resolve();
+        };
+
+        req.onerror = () => resolve();
+    });
+}
+
+let travisMemory = {
+    conversationCount: 0,
+    lastQuestion: "",
+    lastPurpose: "",
+    lastVerdict: ""
+};
+
+function isObligation(spendDesc) {
+    if (!state.obligations || state.obligations.length === 0) return false;
+    return state.obligations.some(o => 
+        spendDesc.toLowerCase().includes(o.label.toLowerCase())
+    );
 }
 
 function getStatusSummary() {
-    const _0x28dbc5 = _0x42411d,
-        _0x181eb6 = getFin(),
-        _0x56d096 = calculateInsolvencyRisk();
+    const fin = getFin();
+    const risk = calculateInsolvencyRisk();
     return {
-        'cash': Math['round'](_0x181eb6[_0x28dbc5(0x2e1)]),
-        'dailyCap': Math[_0x28dbc5(0x363)](_0x181eb6[_0x28dbc5(0x2a3)]),
-        'daysRem': _0x181eb6['daysRem'],
-        'riskLabel': _0x56d096[_0x28dbc5(0x2fa)],
-        'riskColor': _0x56d096[_0x28dbc5(0x1fd)],
-        'riskScore': _0x56d096[_0x28dbc5(0x323)]
+        cash: Math.round(fin.safeCash),
+        dailyCap: Math.floor(fin.daily),
+        daysRem: fin.daysRem,
+        riskLabel: risk.label,
+        riskColor: risk.color,
+        riskScore: risk.score
     };
 }
 
 function updateLiveHud() {
-    const _0x4ce80a = _0x42411d,
-        _0x1b52ed = parseFloat(document[_0x4ce80a(0x320)](_0x4ce80a(0x2b0))[_0x4ce80a(0x375)]) || 0x0,
-        _0x4b83d9 = document[_0x4ce80a(0x320)](_0x4ce80a(0x31e))[_0x4ce80a(0x375)],
-        _0x20496b = getFin(),
-        _0x42366d = isLiquid(_0x4b83d9) ? _0x20496b[_0x4ce80a(0x2e1)] - _0x1b52ed : _0x20496b[_0x4ce80a(0x2e1)],
-        _0x4cba83 = _0x42366d / _0x20496b[_0x4ce80a(0x2cd)];
-    document[_0x4ce80a(0x320)](_0x4ce80a(0x293))['innerText'] = 'KSh\x20' + _0x4cba83['toFixed'](0x0), document['getElementById']('hud-cover')[_0x4ce80a(0x311)] = 'KSh\x20' + _0x20496b[_0x4ce80a(0x30e)][_0x4ce80a(0x2ad)]() + _0x4ce80a(0x1f7);
-    const _0x250593 = document['getElementById'](_0x4ce80a(0x1fc));
-    isLiquid(_0x4b83d9) && _0x1b52ed > _0x20496b['daily'] ? _0x250593[_0x4ce80a(0x27f)][_0x4ce80a(0x2a2)](_0x4ce80a(0x31d)) : _0x250593['classList'][_0x4ce80a(0x211)](_0x4ce80a(0x31d));
+    const amount = parseFloat(document.getElementById('tx-amount').value) || 0;
+    const credit = document.getElementById('tx-credit').value;
+    const fin = getFin();
+    
+    const projectedSafe = isLiquid(credit) ? fin.safeCash - amount : fin.safeCash;
+    const newCap = projectedSafe / fin.daysRem;
+    
+    document.getElementById('hud-cap').innerText = `KSh ${newCap.toFixed(0)}`;
+    document.getElementById('hud-cover').innerText = `KSh ${fin.pending.toLocaleString()} Reserved`;
+    
+    const warn = document.getElementById('hud-warning');
+    if (isLiquid(credit) && amount > fin.daily) {
+        warn.classList.remove('hidden');
+    } else {
+        warn.classList.add('hidden');
+    }
 }
 
 function getFin() {
-    const _0x55890b = _0x42411d,
-        _0x4f1fe0 = new Date(),
-        _0x2cd861 = Math['max'](0x1, new Date(_0x4f1fe0[_0x55890b(0x230)](), _0x4f1fe0[_0x55890b(0x1f4)]() + 0x1, 0x0)[_0x55890b(0x20c)]() - _0x4f1fe0['getDate']());
-    let _0x196105 = 0x0;
-    const _0x484457 = state[_0x55890b(0x261)][_0x55890b(0x2b6)] === _0x55890b(0x2c0) ? [_0x55890b(0x344), _0x55890b(0x331)] : [_0x55890b(0x2f0), _0x55890b(0x37d)];
-    _0x484457[_0x55890b(0x2f4)](_0x37e4f8 => _0x196105 += getBalance(_0x37e4f8));
-    const _0x374ecc = state['obligations'][_0x55890b(0x34f)](_0x7adb4d => {
-            const _0x50aed5 = _0x55890b;
-            let _0x189fd4 = 0x0;
-            return state['transactions'][_0x50aed5(0x2f4)](_0x5590f5 => {
-                const _0x209c0f = _0x50aed5,
-                    _0x3f62a8 = new Date(_0x5590f5['id']);
-                _0x3f62a8[_0x209c0f(0x1f4)]() === _0x4f1fe0[_0x209c0f(0x1f4)]() && (_0x5590f5[_0x209c0f(0x2a8)][_0x209c0f(0x304)]()[_0x209c0f(0x35d)](_0x7adb4d[_0x209c0f(0x2fa)][_0x209c0f(0x304)]()) || _0x5590f5[_0x209c0f(0x352)] === _0x7adb4d[_0x209c0f(0x2fa)]) && (_0x189fd4 += _0x5590f5['amount']);
-            }), {
-                ..._0x7adb4d,
-                'paid': _0x189fd4,
-                'pending': Math[_0x50aed5(0x277)](0x0, _0x7adb4d[_0x50aed5(0x342)] - _0x189fd4),
-                'variance': _0x189fd4 - _0x7adb4d['amount']
-            };
-        }),
-        _0xaae00d = _0x374ecc[_0x55890b(0x32c)]((_0x5e60d4, _0x4abec9) => _0x5e60d4 + _0x4abec9['pending'], 0x0),
-        _0x4ea345 = _0x196105 - _0xaae00d;
-    return {
-        'liquid': _0x196105,
-        'pending': _0xaae00d,
-        'safeCash': _0x4ea345,
-        'daysRem': _0x2cd861,
-        'obsStatus': _0x374ecc,
-        'daily': _0x4ea345 / _0x2cd861
-    };
+    const now = new Date();
+    const daysRem = Math.max(1, new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate() - now.getDate());
+    let liquid = 0;
+    const cashAccs = state.user.type === 'personal' ? ["Cash", "M-Pesa"] : ["Bank/M-Pesa", "Petty Cash"];
+    cashAccs.forEach(a => liquid += getBalance(a));
+
+    const obsStatus = state.obligations.map(o => {
+        let paid = 0;
+        state.transactions.forEach(t => {
+            const tDate = new Date(t.id);
+            if (tDate.getMonth() === now.getMonth() && (t.desc.toLowerCase().includes(o.label.toLowerCase()) || t.credit === o.label)) {
+                paid += t.amount;
+            }
+        });
+        return { ...o, paid, pending: Math.max(0, o.amount - paid), variance: paid - o.amount };
+    });
+
+    const pending = obsStatus.reduce((a, b) => a + b.pending, 0);
+    const safeCash = liquid - pending;
+    return { liquid, pending, safeCash, daysRem, obsStatus, daily: safeCash / daysRem };
 }
 
 function calculateInsolvencyRisk() {
-    const _0x14f7ab = _0x42411d,
-        _0x5eea6f = getFin(),
-        _0x47ffac = (function() {
-            const _0x16f935 = _0x409f,
-                _0x41b148 = new Date(),
-                _0x14aab7 = new Date();
-            _0x14aab7[_0x16f935(0x271)](_0x41b148[_0x16f935(0x20c)]() - 0x7);
-            let _0x2492da = 0x0;
-            return state['transactions'][_0x16f935(0x2f4)](_0x166ddb => {
-                if (new Date(_0x166ddb['id']) >= _0x14aab7 && isLiquid(_0x166ddb['credit'])) _0x2492da += _0x166ddb['amount'];
-            }), _0x2492da / 0x7;
-        }());
-    if (_0x47ffac <= _0x5eea6f[_0x14f7ab(0x2a3)]) return {
-        'score': 0x5,
-        'label': _0x14f7ab(0x241),
-        'color': _0x14f7ab(0x2a0)
-    };
-    if (_0x47ffac > _0x5eea6f['daily'] && _0x47ffac < _0x5eea6f[_0x14f7ab(0x2a3)] * 1.5) return {
-        'score': 0x2d,
-        'label': _0x14f7ab(0x2ca),
-        'color': '#eab308'
-    };
-    if (_0x47ffac >= _0x5eea6f[_0x14f7ab(0x2a3)] * 1.5) return {
-        'score': 0x55,
-        'label': _0x14f7ab(0x347),
-        'color': '#ef4444'
-    };
-    return {
-        'score': 0x0,
-        'label': _0x14f7ab(0x298),
-        'color': _0x14f7ab(0x266)
-    };
+    const fin = getFin();
+    const velocity = (function(){
+        const now = new Date();
+        const weekAgo = new Date(); weekAgo.setDate(now.getDate() - 7);
+        let ts = 0;
+        state.transactions.forEach(t => { if (new Date(t.id) >= weekAgo && isLiquid(t.credit)) ts += t.amount; });
+        return ts / 7;
+    })();
+
+    if (velocity <= fin.daily) return { score: 5, label: "LOW", color: "#4ade80" };
+    if (velocity > fin.daily && velocity < (fin.daily * 1.5)) return { score: 45, label: "MODERATE", color: "#eab308" };
+    if (velocity >= (fin.daily * 1.5)) return { score: 85, label: "CRITICAL", color: "#ef4444" };
+    return { score: 0, label: "UNDETERMINED", color: "#94a3b8" };
 }
 
 function handleAsk() {
-    const _0x11b9cb = _0x42411d,
-        _0x316178 = document[_0x11b9cb(0x320)](_0x11b9cb(0x2e4)),
-        _0x284399 = document[_0x11b9cb(0x320)](_0x11b9cb(0x355)),
-        _0x612f5c = _0x316178[_0x11b9cb(0x375)]['trim']();
-    if (!_0x612f5c) return;
-    travisMemory[_0x11b9cb(0x20d)]++, travisMemory['lastQuestion'] = _0x612f5c;
-    const _0x251daa = _0x612f5c[_0x11b9cb(0x304)]()[_0x11b9cb(0x222)](),
-        _0x5c80b0 = getFin(),
-        _0x2a4a77 = getStatusSummary();
-    let _0x3b43f6 = 0x0;
-    const _0x949a15 = _0x251daa[_0x11b9cb(0x379)](/(\d+)(?:\s*(k|thousand|ksh))?/i);
-    if (_0x949a15) {
-        _0x3b43f6 = parseFloat(_0x949a15[0x1]);
-        if (_0x949a15[0x2]) _0x3b43f6 *= 0x3e8;
+    const input = document.getElementById('chat-input');
+    const box = document.getElementById('chat-box');
+    const rawQ = input.value.trim();
+    if (!rawQ) return;
+
+    travisMemory.conversationCount++;
+    travisMemory.lastQuestion = rawQ;
+
+    const q = rawQ.toLowerCase().trim();
+    const fin = getFin();
+    const status = getStatusSummary();
+
+    let amount = 0;
+    const numMatch = q.match(/(\d+)(?:\s*(k|thousand|ksh))?/i);
+    if (numMatch) {
+        amount = parseFloat(numMatch[1]);
+        if (numMatch[2]) amount *= 1000;
     }
-    let _0x600943 = _0x11b9cb(0x29b),
-        _0x37b375 = ![],
-        _0x32e3dc = isObligation(_0x612f5c);
-    const _0x1df51a = [_0x11b9cb(0x2f6), _0x11b9cb(0x26f), 'porridge', _0x11b9cb(0x325), _0x11b9cb(0x34c), _0x11b9cb(0x20e), _0x11b9cb(0x312), _0x11b9cb(0x2a6), 'utilities', _0x11b9cb(0x295)],
-        _0x242b00 = ['beer', 'party', _0x11b9cb(0x21a), _0x11b9cb(0x205), 'shopping', _0x11b9cb(0x247), _0x11b9cb(0x29f), 'mall', 'drink', _0x11b9cb(0x2a1)];
-    (_0x1df51a[_0x11b9cb(0x321)](_0xf46868 => _0x251daa[_0x11b9cb(0x35d)](_0xf46868)) || _0x32e3dc) && (_0x37b375 = !![], _0x600943 = _0x32e3dc ? _0x11b9cb(0x364) : 'basic\x20need');
-    _0x242b00[_0x11b9cb(0x321)](_0x371603 => _0x251daa[_0x11b9cb(0x35d)](_0x371603)) && (_0x600943 = _0x11b9cb(0x335));
-    const _0x1b1a76 = _0x3b43f6 > _0x2a4a77[_0x11b9cb(0x2c7)],
-        _0x478373 = _0x5c80b0['daysRem'] > 0x0 ? Math[_0x11b9cb(0x363)]((_0x5c80b0[_0x11b9cb(0x2e1)] - _0x3b43f6) / _0x5c80b0[_0x11b9cb(0x2cd)]) : 0x0,
-        _0x463b0c = Math[_0x11b9cb(0x363)](_0x2a4a77[_0x11b9cb(0x2c7)] * 0.7);
-    let _0x57a9ab = _0x11b9cb(0x2ba);
-    _0x57a9ab += _0x11b9cb(0x33f) + _0x612f5c + _0x11b9cb(0x2f9);
-    if (_0x3b43f6 > 0x0) _0x57a9ab += _0x11b9cb(0x343) + _0x3b43f6[_0x11b9cb(0x2ad)]() + _0x11b9cb(0x314) + _0x600943 + '</span>.</div>';
-    else _0x251daa[_0x11b9cb(0x35d)](_0x11b9cb(0x33a)) || _0x251daa[_0x11b9cb(0x35d)](_0x11b9cb(0x326)) || _0x251daa['includes'](_0x11b9cb(0x2d8)) || _0x251daa[_0x11b9cb(0x35d)](_0x11b9cb(0x227)) || _0x251daa[_0x11b9cb(0x35d)](_0x11b9cb(0x297)) ? _0x57a9ab += _0x11b9cb(0x276) : _0x57a9ab += _0x11b9cb(0x333);
-    let _0xd40196 = _0x2a4a77[_0x11b9cb(0x246)];
-    _0x57a9ab += _0x11b9cb(0x2ac) + _0xd40196 + '\x22>' + _0x2a4a77['riskLabel'] + '\x20RISK</span>\x20•\x20Daily\x20cap:\x20KSh\x20' + _0x2a4a77[_0x11b9cb(0x2c7)] + _0x11b9cb(0x2ed);
-    if (_0x3b43f6 > 0x0) {
-        let _0x1a61c0 = _0x11b9cb(0x2a0),
-            _0x3898c9 = '',
-            _0x13f19f = '';
-        _0x32e3dc || _0x37b375 ? _0x1b1a76 ? (_0x1a61c0 = _0x11b9cb(0x2bc), _0x3898c9 = _0x11b9cb(0x267) + _0x2a4a77[_0x11b9cb(0x2c7)] + ').\x20After\x20this,\x20you\x27d\x20only\x20have\x20KSh\x20' + _0x478373 + _0x11b9cb(0x317), _0x13f19f = _0x11b9cb(0x2f7) + _0x463b0c + '\x20today\x20so\x20you\x20still\x20have\x20decent\x20room\x20for\x20the\x20next\x20' + (_0x2a4a77[_0x11b9cb(0x2cd)] - 0x1) + _0x11b9cb(0x253)) : (_0x3898c9 = _0x11b9cb(0x34a), _0x13f19f = 'Go\x20ahead.\x20This\x20is\x20within\x20reach.') : _0x1b1a76 ? (_0x1a61c0 = _0x11b9cb(0x250), _0x3898c9 = _0x11b9cb(0x2a9) + _0x478373 + _0x11b9cb(0x37e), _0x13f19f = _0x11b9cb(0x22b) + _0x463b0c + '\x20today.\x20Better\x20to\x20keep\x20buffer\x20for\x20emergencies.') : (_0x3898c9 = _0x11b9cb(0x282), _0x13f19f = _0x11b9cb(0x209)), _0x57a9ab += '<div\x20style=\x22color:' + _0x1a61c0 + _0x11b9cb(0x2d5) + _0x3898c9 + _0x11b9cb(0x2ed), _0x57a9ab += _0x11b9cb(0x371) + _0x13f19f + '</div>';
+
+    let category = "general";
+    let isBasic = false;
+    let isObligationFlag = isObligation(rawQ);
+
+    const basicKeywords = ["rent", "food", "porridge", "school", "fees", "fuel", "transport", "transport & fuel", "utilities", "salary"];
+    const luxuryKeywords = ["beer", "party", "club", "turn up", "shopping", "clothes", "shoes", "mall", "drink", "outing"];
+
+    if (basicKeywords.some(k => q.includes(k)) || isObligationFlag) {
+        isBasic = true;
+        category = isObligationFlag ? "monthly obligation" : "basic need";
+    }
+    if (luxuryKeywords.some(k => q.includes(k))) {
+        category = "luxury / secondary";
+    }
+
+    const overDaily = amount > status.dailyCap;
+    const newDailyAfter = fin.daysRem > 0 ? Math.floor((fin.safeCash - amount) / fin.daysRem) : 0;
+    const fallbackAmount = Math.floor(status.dailyCap * 0.7);
+
+    let msg = `<div class="text-5xl mb-2"></div>`;
+    msg += `<div class="text-[#4ade80] text-2xl mb-4">You asked: "${rawQ}"</div>`;
+
+    if (amount > 0) {
+        msg += `<div class="text-xl">You're considering spending KSh ${amount.toLocaleString()} on <span class="text-yellow-400">${category}</span>.</div>`;
+    } else if (q.includes("how is") || q.includes("business") || q.includes("doing") || q.includes("status") || q.includes("habit")) {
+        msg += `<div class="text-xl">Let me give you a quick read on your situation today...</div>`;
     } else {
-        if (_0x251daa[_0x11b9cb(0x35d)](_0x11b9cb(0x33a)) || _0x251daa[_0x11b9cb(0x35d)](_0x11b9cb(0x326)) || _0x251daa[_0x11b9cb(0x35d)](_0x11b9cb(0x2d8)) || _0x251daa[_0x11b9cb(0x35d)]('status')) {
-            if (_0x2a4a77[_0x11b9cb(0x265)] === _0x11b9cb(0x241)) _0x57a9ab += '<div\x20class=\x22mt-6\x20text-2xl\x20font-bold\x20text-[#4ade80]\x22>Business\x20is\x20looking\x20stable\x20today.\x20No\x20red\x20flags\x20—\x20keep\x20the\x20same\x20discipline\x20and\x20the\x20next\x20few\x20days\x20should\x20stay\x20calm.</div>';
-            else _0x2a4a77[_0x11b9cb(0x265)] === _0x11b9cb(0x2ca) ? _0x57a9ab += _0x11b9cb(0x210) : _0x57a9ab += _0x11b9cb(0x373);
-        } else _0x251daa[_0x11b9cb(0x35d)](_0x11b9cb(0x297)) || _0x251daa[_0x11b9cb(0x35d)](_0x11b9cb(0x32f)) ? _0x57a9ab += _0x11b9cb(0x357) : _0x57a9ab += _0x11b9cb(0x359);
+        msg += `<div class="text-xl">Got it — let's talk money.</div>`;
     }
-    travisMemory['conversationCount'] > 0x5 && Math[_0x11b9cb(0x2e0)]() > 0.6 && (_0x57a9ab += _0x11b9cb(0x24f)), _0x284399[_0x11b9cb(0x37b)] += '<div\x20class=\x22text-right\x22><span\x20class=\x22user-msg\x20text-sm\x20inline-block\x22>' + _0x612f5c + _0x11b9cb(0x37c), _0x284399[_0x11b9cb(0x37b)] += _0x11b9cb(0x30d) + _0x57a9ab + '</span></div>', _0x316178[_0x11b9cb(0x375)] = '', _0x284399[_0x11b9cb(0x2da)] = _0x284399[_0x11b9cb(0x365)];
+
+    let riskColor = status.riskColor;
+    msg += `<div class="mt-4">Current status: <span style="color:${riskColor}">${status.riskLabel} RISK</span> • Daily cap: KSh ${status.dailyCap}</div>`;
+
+    if (amount > 0) {
+        let consequenceColor = "#4ade80";
+        let consequence = "";
+        let verdict = "";
+
+        if (isObligationFlag || isBasic) {
+            if (overDaily) {
+                consequenceColor = "#eab308";
+                consequence = `This is important, but it's above your daily cap (KSh ${status.dailyCap}). After this, you'd only have KSh ${newDailyAfter} per day left.`;
+                verdict = `If I were you, I'd cap it at KSh ${fallbackAmount} today so you still have decent room for the next ${status.daysRem - 1} days.`;
+            } else {
+                consequence = `This fits inside your daily cap — safe for a necessary spend.`;
+                verdict = `Go ahead. This is within reach.`;
+            }
+        } else { 
+            if (overDaily) {
+                consequenceColor = "#ef4444";
+                consequence = `This is a luxury spend and it's well above your daily cap. After this, you'd be left with only KSh ${newDailyAfter} per day — tight squeeze.`;
+                verdict = `Strong advice: don't do the full amount. If you really want it, limit to KSh ${fallbackAmount} today. Better to keep buffer for emergencies.`;
+            } else {
+                consequence = `It's within daily cap but it's not essential.`;
+                verdict = `You can do it, but think twice — is it worth the pattern? Log it so we can watch.`;
+            }
+        }
+
+        msg += `<div style="color:${consequenceColor}; margin-top:12px; font-weight:bold;">${consequence}</div>`;
+        msg += `<div class="mt-6 text-2xl font-bold">${verdict}</div>`;
+    } else if (q.includes("how is") || q.includes("business") || q.includes("doing") || q.includes("status")) {
+        if (status.riskLabel === "LOW") {
+            msg += `<div class="mt-6 text-2xl font-bold text-[#4ade80]">Business is looking stable today. No red flags — keep the same discipline and the next few days should stay calm.</div>`;
+        } else if (status.riskLabel === "MODERATE") {
+            msg += `<div class="mt-6 text-2xl font-bold text-[#eab308]">Yellow zone — things are okay but watch spending. Next 3 days look manageable if we stay disciplined.</div>`;
+        } else {
+            msg += `<div class="mt-6 text-2xl font-bold text-[#ef4444]">Tight right now. Next few days could be stressful unless we cut back hard.</div>`;
+        }
+    } else if (q.includes("habit") || q.includes("spending habit")) {
+        msg += `<div class="mt-6 text-2xl font-bold">Your recent spending looks moderate — mostly within cap. But we've had a few lifestyle questions lately... let's tighten up a bit to stay green.</div>`;
+    } else {
+        msg += `<div class="mt-6 text-2xl font-bold">Everything still looks stable. Anything specific you want to plan for?</div>`;
+    }
+
+    if (travisMemory.conversationCount > 5 && Math.random() > 0.6) {
+        msg += `<div class="mt-6 text-xs italic text-yellow-300">Noticing a pattern of spending questions... want me to lock in a weekly cap so we stay safer?</div>`;
+    }
+
+    box.innerHTML += `<div class="text-right"><span class="user-msg text-sm inline-block">${rawQ}</span></div>`;
+    box.innerHTML += `<div class="text-left flex gap-2"><div class="text-[#4ade80] font-black text-[10px] mt-1">TRV:</div><span class="travis-msg text-sm inline-block">${msg}</span></div>`;
+
+    input.value = "";
+    box.scrollTop = box.scrollHeight;
 }
 
-function nav(_0x2b714a) {
-    const _0x474f76 = _0x42411d,
-        _0x4a9ba8 = document[_0x474f76(0x320)]('view-port'),
-        _0x9c35f3 = getFin();
-    updateHeader(_0x9c35f3);
-    if (_0x2b714a === _0x474f76(0x23e)) {
-        const _0x29ae53 = calculateInsolvencyRisk(),
-            _0x377d61 = _0x9c35f3['obsStatus']['filter'](_0x503a2e => _0x503a2e[_0x474f76(0x34d)] > 0x0);
-        _0x4a9ba8[_0x474f76(0x37b)] = _0x474f76(0x2dc) + _0x29ae53[_0x474f76(0x1fd)] + _0x474f76(0x204) + _0x29ae53[_0x474f76(0x1fd)] + '\x22>' + _0x29ae53[_0x474f76(0x2fa)] + _0x474f76(0x228) + (0x64 - _0x29ae53[_0x474f76(0x323)]) + _0x474f76(0x36f) + (_0x377d61[_0x474f76(0x1f1)] > 0x0 ? _0x377d61['map'](_0x49570a => _0x474f76(0x339) + _0x49570a[_0x474f76(0x2fa)] + _0x474f76(0x2b4) + _0x49570a['variance'][_0x474f76(0x2ad)]() + '</span></div>')['join']('') : _0x474f76(0x240)) + _0x474f76(0x239) + _0x9c35f3['safeCash'][_0x474f76(0x2ad)]() + _0x474f76(0x22c), setTimeout(() => renderChart(), 0x64);
+function nav(view) {
+    const port = document.getElementById('view-port');
+    const fin = getFin();
+    updateHeader(fin);
+
+    if(view === 'dash') {
+        const risk = calculateInsolvencyRisk();
+        const leaks = fin.obsStatus.filter(o => o.variance > 0);
+        
+        port.innerHTML = `
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div class="lg:col-span-1 space-y-4">
+                    <div class="glass p-6 border-l-4" style="border-color: ${risk.color}">
+                        <p class="text-[10px] opacity-40 uppercase tracking-widest">Insolvency Risk Score</p>
+                        <h1 class="text-4xl font-black mb-3" style="color: ${risk.color}">${risk.label}</h1>
+                        <div class="risk-heatmap overflow-hidden"><div class="bg-white/20 h-full" style="width: ${100 - risk.score}%"></div></div>
+                        <p class="text-[9px] mt-2 opacity-50 italic">Based on 7D Velocity vs. Projected Ceiling.</p>
+                    </div>
+
+                    <div class="glass p-6 border-l-4 border-red-500 bg-red-950/10">
+                        <p class="text-[10px] text-red-500 font-bold uppercase tracking-widest mb-4">Leak Finder</p>
+                        <div class="space-y-1">
+                            ${leaks.length > 0 ? leaks.map(l => `<div class="flex justify-between border-b border-red-900/30 py-2"><span class="text-xs uppercase">${l.label}</span><span class="leak-red font-bold">+KSh ${l.variance.toLocaleString()}</span></div>`).join('') : '<p class="text-[10px] opacity-30 italic">No budget variances detected.</p>'}
+                        </div>
+                    </div>
+
+                    <div class="glass p-6 border-l-4 border-[#4ade80]">
+                        <p class="text-[10px] opacity-40 uppercase tracking-widest">Disposable Buffer</p>
+                        <h1 class="text-4xl font-black">KSh ${fin.safeCash.toLocaleString()}</h1>
+                    </div>
+                </div>
+                <div class="lg:col-span-2 glass p-6 neon-border relative min-h-[350px]">
+                    <h3 class="text-xs font-black uppercase tracking-widest text-slate-400 mb-4">Performance Analytics</h3>
+                    <div class="h-[300px]"><canvas id="analyticsChart"></canvas></div>
+                </div>
+            </div>`;
+        setTimeout(() => renderChart(), 100);
     }
-    if (_0x2b714a === _0x474f76(0x269)) {
-        let _0x3f7445 = _0x9c35f3[_0x474f76(0x27c)][_0x474f76(0x34f)](_0x44336f => '\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<div\x20class=\x22flex\x20justify-between\x20items-center\x20p-4\x20bg-slate-900\x20border-b\x20border-slate-800\x22>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<div><p\x20class=\x22font-bold\x20uppercase\x22>' + _0x44336f['label'] + _0x474f76(0x26b) + _0x44336f[_0x474f76(0x342)]['toLocaleString']() + '\x20|\x20Spent:\x20' + _0x44336f[_0x474f76(0x2e2)][_0x474f76(0x2ad)]() + _0x474f76(0x2c4) + (_0x44336f['pending'] <= 0x0 ? 'text-green-400' : _0x474f76(0x2ce)) + _0x474f76(0x2c2) + (_0x44336f['pending'] <= 0x0 ? _0x474f76(0x232) : 'KSh\x20' + _0x44336f['pending']['toLocaleString']()) + _0x474f76(0x2e3) + (_0x44336f[_0x474f76(0x34d)] > 0x0 ? '<p\x20class=\x22text-[9px]\x20text-red-500\x20font-bold\x20uppercase\x20tracking-tighter\x22>+' + _0x44336f[_0x474f76(0x34d)][_0x474f76(0x2ad)]() + _0x474f76(0x356) : '') + '\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20</div>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20</div>')[_0x474f76(0x2dd)]('');
-        _0x4a9ba8[_0x474f76(0x37b)] = _0x474f76(0x2b2) + (_0x3f7445 || _0x474f76(0x328)) + _0x474f76(0x202);
+    
+    if(view === 'obs') {
+        let rows = fin.obsStatus.map(o => `
+            <div class="flex justify-between items-center p-4 bg-slate-900 border-b border-slate-800">
+                <div><p class="font-bold uppercase">${o.label}</p><p class="text-[10px] opacity-40 uppercase">Budget: ${o.amount.toLocaleString()} | Spent: ${o.paid.toLocaleString()}</p></div>
+                <div class="text-right">
+                    <p class="${o.pending <= 0 ? 'text-green-400' : 'text-yellow-500'} font-black text-sm uppercase">${o.pending <= 0 ? 'Settled' : 'KSh ' + o.pending.toLocaleString()}</p>
+                    ${o.variance > 0 ? `<p class="text-[9px] text-red-500 font-bold uppercase tracking-tighter">+${o.variance.toLocaleString()} OVER</p>` : ''}
+                </div>
+            </div>`).join('');
+        port.innerHTML = `<div class="glass p-6 neon-border">
+            <div class="flex justify-between items-center mb-6"><h3 class="text-2xl font-black uppercase italic">Mandatory Reserve</h3><button onclick="document.getElementById('setup-overlay').classList.remove('hidden')" class="text-[10px] border border-slate-700 px-2 py-1">EDIT LIST</button></div>
+            ${rows || '<p class="opacity-30">No obligations.</p>'}
+            <button onclick="factoryReset()" class="mt-20 text-red-900 text-[10px] font-bold uppercase tracking-widest hover:text-red-500">Full System Wipe</button>
+        </div>`;
     }
-    _0x2b714a === _0x474f76(0x2cb) && (_0x4a9ba8['innerHTML'] = _0x474f76(0x1f3), document[_0x474f76(0x320)](_0x474f76(0x2e4))[_0x474f76(0x377)](_0x474f76(0x226), _0x478268 => {
-        const _0x5e9c91 = _0x474f76;
-        if (_0x478268['key'] === _0x5e9c91(0x31a)) handleAsk();
-    }));
-    if (_0x2b714a === _0x474f76(0x291)) {
-        let _0x5e52c6 = state[_0x474f76(0x28c)][_0x474f76(0x34f)](_0x506388 => {
-            const _0x45c867 = _0x474f76,
-                _0xa7271e = _0x506388[_0x45c867(0x342)][_0x45c867(0x2ad)]();
-            return '\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<tr\x20class=\x22border-b\x20border-slate-800\x20text-sm\x20hover:bg-slate-900/50\x20transition-colors\x22>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<td\x20class=\x22p-4\x20opacity-40\x20font-bold\x20text-[10px]\x22>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20' + new Date(_0x506388['id'])[_0x45c867(0x206)](_0x45c867(0x262)) + _0x45c867(0x2eb) + _0x506388[_0x45c867(0x2a8)] + _0x45c867(0x2b5) + _0x506388[_0x45c867(0x254)] + '</span>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<span\x20class=\x22text-[9px]\x20opacity-30\x22>←</span>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<span\x20class=\x22text-[9px]\x20bg-red-900/30\x20text-red-400\x20px-1\x20rounded\x20font-bold\x22>' + _0x506388[_0x45c867(0x352)] + _0x45c867(0x21e) + _0xa7271e + '\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20</td>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<td\x20class=\x22p-4\x20text-right\x20text-red-400\x20font-black\x20tracking-tighter\x22>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20-' + _0xa7271e + _0x45c867(0x264);
-        })['join']('');
-        _0x4a9ba8[_0x474f76(0x37b)] = _0x474f76(0x292) + (_0x5e52c6 || _0x474f76(0x37a)) + _0x474f76(0x2ec);
+
+    if(view === 'ask') {
+        port.innerHTML = `<div class="max-w-4xl glass p-6 mx-auto flex flex-col h-[550px] neon-border">
+            <div id="chat-box" class="flex-1 overflow-y-auto space-y-4 mb-4 pr-2 flex flex-col">
+                <div class="travis-msg text-xs italic">Probability Engine and Leak Finder active. How can I protect your capital?</div>
+            </div>
+            <div class="flex gap-2 p-2 bg-slate-900 border-2 border-slate-800">
+                <input id="chat-input" type="text" placeholder="Consult Travis..." class="flex-1 p-4 bg-transparent border-none">
+                <button onclick="handleAsk()" class="bg-[#4ade80] text-black px-8 font-black rounded uppercase">Send</button>
+            </div>
+        </div>`;
+        document.getElementById('chat-input').addEventListener('keypress', (e) => { if(e.key === 'Enter') handleAsk(); });
+    }
+
+    if(view === 'book') {
+        let rows = state.transactions.map(t => {
+            const amountStr = t.amount.toLocaleString();
+            return `
+                <tr class="border-b border-slate-800 text-sm hover:bg-slate-900/50 transition-colors">
+                    <td class="p-4 opacity-40 font-bold text-[10px]">
+                        ${new Date(t.id).toLocaleDateString('en-KE')}
+                    </td>
+                    <td class="p-4">
+                        <div class="font-black italic uppercase text-slate-200">${t.desc}</div>
+                        <div class="flex items-center gap-2 mt-1">
+                            <span class="text-[9px] bg-green-900/30 text-green-400 px-1 rounded font-bold">${t.debit}</span>
+                            <span class="text-[9px] opacity-30">←</span>
+                            <span class="text-[9px] bg-red-900/30 text-red-400 px-1 rounded font-bold">${t.credit}</span>
+                        </div>
+                    </td>
+                    <td class="p-4 text-right text-green-400 font-black tracking-tighter">
+                        +${amountStr}
+                    </td>
+                    <td class="p-4 text-right text-red-400 font-black tracking-tighter">
+                        -${amountStr}
+                    </td>
+                </tr>`;
+        }).join('');
+
+        port.innerHTML = `
+            <div class="glass overflow-hidden rounded-xl border border-slate-800">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="bg-slate-900/80 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                            <th class="p-4 border-b border-slate-800">Date</th>
+                            <th class="p-4 border-b border-slate-800">Transaction Details</th>
+                            <th class="p-4 border-b border-slate-800 text-right">Debit (+)</th>
+                            <th class="p-4 border-b border-slate-800 text-right">Credit (-)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rows || '<tr><td colspan="4" class="p-10 text-center opacity-30 italic font-bold uppercase tracking-widest">No entries found in the archives.</td></tr>'}
+                    </tbody>
+                </table>
+            </div>`;
     }
 }
 
 function renderChart() {
-    const _0x594de4 = _0x42411d,
-        _0x478ad5 = document[_0x594de4(0x320)](_0x594de4(0x2be))?.[_0x594de4(0x294)]('2d');
-    if (!_0x478ad5) return;
-    const _0xf54fd2 = getFin(),
-        _0x43b753 = new Date();
-    let _0x58b468 = [],
-        _0x566024 = [],
-        _0x3b8b06 = [],
-        _0x42cc24 = [];
-    for (let _0x126a96 = 0x6; _0x126a96 >= 0x0; _0x126a96--) {
-        const _0x4c83ec = new Date();
-        _0x4c83ec[_0x594de4(0x271)](_0x43b753[_0x594de4(0x20c)]() - _0x126a96), _0x58b468[_0x594de4(0x2b7)](_0x4c83ec['toLocaleDateString']('en-KE', {
-            'weekday': _0x594de4(0x384)
-        }));
-        let _0x117de9 = 0x0,
-            _0x1f6afa = 0x0;
-        state[_0x594de4(0x28c)][_0x594de4(0x2f4)](_0x28eeb7 => {
-            const _0x51eefd = _0x594de4;
-            if (new Date(_0x28eeb7['id'])[_0x51eefd(0x383)]() === _0x4c83ec[_0x51eefd(0x383)]()) {
-                if (isLiquid(_0x28eeb7[_0x51eefd(0x352)])) _0x117de9 += _0x28eeb7['amount'];
-                if (isLiquid(_0x28eeb7[_0x51eefd(0x254)])) _0x1f6afa += _0x28eeb7[_0x51eefd(0x342)];
+    const ctx = document.getElementById('analyticsChart')?.getContext('2d');
+    if (!ctx) return;
+    const fin = getFin();
+    const now = new Date();
+    let labels = []; let spendData = []; let revData = []; let capData = [];
+
+    for (let i = 6; i >= 0; i--) {
+        const d = new Date(); d.setDate(now.getDate() - i);
+        labels.push(d.toLocaleDateString('en-KE', { weekday: 'short' }));
+        let ds = 0, dr = 0;
+        state.transactions.forEach(t => {
+            if (new Date(t.id).toDateString() === d.toDateString()) {
+                if (isLiquid(t.credit)) ds += t.amount;
+                if (isLiquid(t.debit)) dr += t.amount;
             }
-        }), _0x566024[_0x594de4(0x2b7)](_0x117de9), _0x3b8b06['push'](_0x1f6afa), _0x42cc24[_0x594de4(0x2b7)](_0xf54fd2[_0x594de4(0x2a3)]);
+        });
+        spendData.push(ds); revData.push(dr); capData.push(fin.daily);
     }
-    if (window[_0x594de4(0x249)]) window[_0x594de4(0x249)][_0x594de4(0x1fe)]();
-    window[_0x594de4(0x249)] = new Chart(_0x478ad5, {
-        'type': _0x594de4(0x284),
-        'data': {
-            'labels': _0x58b468,
-            'datasets': [{
-                'label': 'CEILING',
-                'data': _0x42cc24,
-                'borderColor': _0x594de4(0x324),
-                'borderDash': [0x5, 0x5],
-                'pointRadius': 0x0,
-                'fill': ![]
-            }, {
-                'label': _0x594de4(0x229),
-                'data': _0x566024,
-                'borderColor': _0x594de4(0x250),
-                'backgroundColor': _0x594de4(0x216),
-                'fill': !![],
-                'tension': 0.4
-            }, {
-                'label': _0x594de4(0x27e),
-                'data': _0x3b8b06,
-                'borderColor': _0x594de4(0x2a0),
-                'backgroundColor': _0x594de4(0x256),
-                'fill': !![],
-                'tension': 0.4
-            }]
+
+    if (window.travisChart) window.travisChart.destroy();
+    window.travisChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [
+                { label: 'CEILING', data: capData, borderColor: '#3b82f6', borderDash: [5, 5], pointRadius: 0, fill: false },
+                { label: 'SPEND', data: spendData, borderColor: '#ef4444', backgroundColor: 'rgba(239, 68, 68, 0.1)', fill: true, tension: 0.4 },
+                { label: 'REVENUE', data: revData, borderColor: '#4ade80', backgroundColor: 'rgba(74, 222, 128, 0.1)', fill: true, tension: 0.4 }
+            ]
         },
-        'options': {
-            'responsive': !![],
-            'maintainAspectRatio': ![],
-            'plugins': {
-                'legend': {
-                    'labels': {
-                        'color': '#94a3b8',
-                        'font': {
-                            'size': 0xa
-                        }
-                    }
-                }
-            }
-        }
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#94a3b8', font: { size: 10 } } } } }
     });
 }
 
-function updateHeader(_0x2c1789) {
-    const _0xa0b46e = _0x42411d,
-        _0x3c327d = document[_0xa0b46e(0x320)](_0xa0b46e(0x33c));
-    _0x3c327d[_0xa0b46e(0x37b)] = _0xa0b46e(0x242) + _0x2c1789[_0xa0b46e(0x2d3)][_0xa0b46e(0x2ad)]() + _0xa0b46e(0x2ae) + _0x2c1789[_0xa0b46e(0x30e)][_0xa0b46e(0x2ad)]() + _0xa0b46e(0x36a) + _0x2c1789['daysRem'] + _0xa0b46e(0x36e) + Math['max'](0x0, _0x2c1789[_0xa0b46e(0x2a3)])['toFixed'](0x0) + _0xa0b46e(0x301);
-    const _0x12f6c4 = document[_0xa0b46e(0x320)](_0xa0b46e(0x280));
-    _0x12f6c4['innerText'] = _0x2c1789['safeCash'] < 0x0 ? _0xa0b46e(0x2d2) : _0xa0b46e(0x2de), _0x12f6c4[_0xa0b46e(0x351)] = _0x2c1789[_0xa0b46e(0x2e1)] < 0x0 ? 'px-4\x20py-2\x20border-2\x20border-red-500\x20text-red-500\x20rounded\x20font-black\x20animate-pulse' : 'px-4\x20py-2\x20border-2\x20border-[#4ade80]\x20text-[#4ade80]\x20rounded\x20font-black';
+function updateHeader(fin) {
+    const grid = document.getElementById('dashboard-grid');
+    grid.innerHTML = `
+        <div class="glass p-4 border-l-4 border-blue-500"><p class="text-[10px] opacity-40 uppercase">Total Liquid</p><p class="text-xl font-bold">KSh ${fin.liquid.toLocaleString()}</p></div>
+        <div class="glass p-4 border-l-4 border-red-500"><p class="text-[10px] opacity-40 uppercase">Reserved Bills</p><p class="text-xl font-bold">KSh ${fin.pending.toLocaleString()}</p></div>
+        <div class="glass p-4 border-l-4 border-[#4ade80]"><p class="text-[10px] opacity-40 uppercase">Survival Window</p><p class="text-xl font-bold">${fin.daysRem} Days</p></div>
+        <div class="glass p-4 border-l-4 border-purple-500"><p class="text-[10px] opacity-40 uppercase">Daily Ceiling</p><p class="text-xl font-bold">KSh ${Math.max(0, fin.daily).toFixed(0)}</p></div>
+    `;
+    const v = document.getElementById('header-verdict');
+    v.innerText = fin.safeCash < 0 ? "⚠️ INSOLVENT" : "🛡️ SYSTEM STABLE";
+    v.className = fin.safeCash < 0 ? "px-4 py-2 border-2 border-red-500 text-red-500 rounded font-black animate-pulse" : "px-4 py-2 border-2 border-[#4ade80] text-[#4ade80] rounded font-black";
 }
 
-function isLiquid(_0x24182d) {
-    const _0x1efb18 = _0x42411d;
-    return [_0x1efb18(0x344), _0x1efb18(0x331), _0x1efb18(0x2f0), _0x1efb18(0x37d)][_0x1efb18(0x35d)](_0x24182d);
-}
+function isLiquid(acc) { return ["Cash", "M-Pesa", "Bank/M-Pesa", "Petty Cash"].includes(acc); }
 
-function getBalance(_0x4514fb) {
-    const _0x995639 = _0x42411d;
-    let _0x1e6a82 = 0x0;
-    state['transactions'][_0x995639(0x2f4)](_0x154da2 => {
-        const _0xd048f1 = _0x995639;
-        if (_0x154da2['debit'] === _0x4514fb) _0x1e6a82 += _0x154da2[_0xd048f1(0x342)];
-        if (_0x154da2[_0xd048f1(0x352)] === _0x4514fb) _0x1e6a82 -= _0x154da2[_0xd048f1(0x342)];
+function getBalance(acc) {
+    let balance = 0;
+    state.transactions.forEach(t => {
+        if(t.debit === acc) balance += t.amount;
+        if(t.credit === acc) balance -= t.amount;
     });
-    const _0x7a0064 = [_0x995639(0x344), _0x995639(0x331), _0x995639(0x2f0), _0x995639(0x37d), 'Inventory', _0x995639(0x1f9), _0x995639(0x2fb)];
-    return _0x7a0064[_0x995639(0x35d)](_0x4514fb) ? _0x1e6a82 : -_0x1e6a82;
+    const assetTypes = ["Cash", "M-Pesa", "Bank/M-Pesa", "Petty Cash", "Inventory", "Stock", "Tools"];
+    return assetTypes.includes(acc) ? balance : -balance;
 }
+
+
 
 function showTxModal() {
-    const _0x593e5b = _0x42411d,
-        _0xe9f192 = document[_0x593e5b(0x320)]('tx-debit'),
-        _0x9fb886 = document[_0x593e5b(0x320)](_0x593e5b(0x31e));
-    _0xe9f192['innerHTML'] = _0x9fb886[_0x593e5b(0x37b)] = '';
-    const _0x1ec84c = state['user'][_0x593e5b(0x2b6)] === _0x593e5b(0x2c0),
-        _0x43e834 = (_0x202a6d, _0x2f3ac5, _0x3de157) => {
-            const _0x19d02d = _0x593e5b,
-                _0x5f586f = document[_0x19d02d(0x289)]('optgroup');
-            return _0x5f586f[_0x19d02d(0x2fa)] = '●\x20' + _0x202a6d, _0x5f586f['style'][_0x19d02d(0x1fd)] = _0x2f3ac5, _0x3de157[_0x19d02d(0x2f4)](_0x185dac => {
-                const _0x52fe21 = _0x19d02d,
-                    _0xec115f = new Option(_0x185dac, _0x185dac);
-                _0x5f586f[_0x52fe21(0x2f2)](_0xec115f);
-            }), _0x5f586f;
+    const d = document.getElementById('tx-debit');
+    const c = document.getElementById('tx-credit');
+    d.innerHTML = c.innerHTML = "";
+
+    const isPersonal = state.user.type === 'personal';
+
+    const createColoredOptgroup = (label, color, accounts) => {
+        const optgroup = document.createElement('optgroup');
+        optgroup.label = `● ${label}`; 
+        optgroup.style.color = color;    
+
+        accounts.forEach(account => {
+            const option = new Option(account, account);
+            optgroup.appendChild(option);
+        });
+        return optgroup;
+    };
+
+    if (isPersonal) {
+        const personalSelect = (select) => {
+            select.appendChild(createColoredOptgroup("ASSETS (Money you have)", "#22c55e", [
+                "Cash", "M-Pesa", "Bank Account", "Savings Account"
+            ]));
+
+            select.appendChild(createColoredOptgroup("INCOME (Money coming in - GOOD!)", "#22c55e", [
+                "Salary", "Freelance / Side Hustle", "Gifts / Allowance", 
+                "Interest / Dividends", "Other Income"
+            ]));
+
+            select.appendChild(createColoredOptgroup("NECESSARY EXPENSES (Must pay)", "#d97706", [  
+                "Food & Groceries", "Rent / Housing", "Bills / Utilities", 
+                "Transport", "Health / Medical", "Education / School"
+            ]));
+
+            select.appendChild(createColoredOptgroup("AVOIDABLE EXPENSES (Can cut back)", "#ef4444", [  
+                "Party / Entertainment", "Shopping / Clothes", "Travel (fun)", 
+                "Other Fun Spending"
+            ]));
+
+            select.appendChild(createColoredOptgroup("LIABILITIES & TRANSFERS", "#3b82f6", [  
+                "Loan Repayment", "Credit Card Payment"
+            ]));
         };
-    if (_0x1ec84c) {
-        const _0x213ed8 = _0x42e4a1 => {
-            const _0x593c74 = _0x593e5b;
-            _0x42e4a1[_0x593c74(0x2f2)](_0x43e834(_0x593c74(0x26d), _0x593c74(0x2e5), ['Cash', 'M-Pesa', 'Bank\x20Account', 'Savings\x20Account'])), _0x42e4a1[_0x593c74(0x2f2)](_0x43e834(_0x593c74(0x238), _0x593c74(0x2e5), ['Salary', _0x593c74(0x318), _0x593c74(0x245), 'Interest', 'Other\x20Income'])), _0x42e4a1[_0x593c74(0x2f2)](_0x43e834(_0x593c74(0x29d), '#d97706', ['Food\x20&\x20Groceries', _0x593c74(0x300), _0x593c74(0x270), 'Transport', _0x593c74(0x34b), _0x593c74(0x221)])), _0x42e4a1['appendChild'](_0x43e834('AVOIDABLE\x20EXPENSES\x20(Can\x20cut\x20back)', _0x593c74(0x250), [_0x593c74(0x263), 'Shopping', _0x593c74(0x30f), _0x593c74(0x244)])), _0x42e4a1[_0x593c74(0x2f2)](_0x43e834('LIABILITIES\x20&\x20TRANSFERS', _0x593c74(0x324), [_0x593c74(0x2a5), _0x593c74(0x2a4)]));
+
+        personalSelect(d);
+        personalSelect(c);
+    } 
+    else {
+        const businessSelect = (select) => {
+            select.appendChild(createColoredOptgroup("ASSETS (What the business owns)", "#22c55e", [
+                "Bank / M-Pesa", "Petty Cash", "Accounts Receivable", 
+                "Inventory", "Fixed Assets"
+            ]));
+
+            select.appendChild(createColoredOptgroup("REVENUE (Money coming in - GOOD!)", "#22c55e", [
+                "Sales Revenue", "Service Revenue", "Other Revenue"
+            ]));
+
+            select.appendChild(createColoredOptgroup("NECESSARY OPERATING EXPENSES", "#d97706", [
+                "Rent", "Payroll", "Utilities", "Cost of Goods Sold", 
+                "Tax", "Office Supplies"
+            ]));
+
+            select.appendChild(createColoredOptgroup("DISCRETIONARY / AVOIDABLE EXPENSES", "#ef4444", [
+                "Marketing", "Travel & Entertainment", "Professional Fees (if not critical)"
+            ]));
+
+            select.appendChild(createColoredOptgroup("LIABILITIES & TRANSFERS", "#3b82f6", [
+                "Accounts Payable", "Loans Payable"
+            ]));
         };
-        _0x213ed8(_0xe9f192), _0x213ed8(_0x9fb886);
-    } else {
-        const _0x5c918d = _0x25a86d => {
-            const _0x48a191 = _0x593e5b;
-            _0x25a86d['appendChild'](_0x43e834(_0x48a191(0x2c1), '#22c55e', ['Bank\x20/\x20M-Pesa', _0x48a191(0x37d), _0x48a191(0x308), _0x48a191(0x27a), _0x48a191(0x367)])), _0x25a86d[_0x48a191(0x2f2)](_0x43e834(_0x48a191(0x275), _0x48a191(0x2e5), ['Sales\x20Revenue', _0x48a191(0x2b9), _0x48a191(0x24c)])), _0x25a86d[_0x48a191(0x2f2)](_0x43e834(_0x48a191(0x2f5), _0x48a191(0x378), ['Rent', _0x48a191(0x28a), _0x48a191(0x235), _0x48a191(0x2c5), 'Tax', 'Office\x20Supplies'])), _0x25a86d[_0x48a191(0x2f2)](_0x43e834(_0x48a191(0x286), _0x48a191(0x250), [_0x48a191(0x24b), _0x48a191(0x353), 'Professional\x20Fees\x20(if\x20not\x20critical)'])), _0x25a86d[_0x48a191(0x2f2)](_0x43e834(_0x48a191(0x2e7), _0x48a191(0x324), ['Accounts\x20Payable', 'Loans\x20Payable']));
-        };
-        _0x5c918d(_0xe9f192), _0x5c918d(_0x9fb886);
+
+        businessSelect(d);
+        businessSelect(c);
     }
-    document[_0x593e5b(0x320)]('tx-modal')[_0x593e5b(0x27f)][_0x593e5b(0x2a2)](_0x593e5b(0x31d)), updateLiveHud();
+
+    document.getElementById('tx-modal').classList.remove('hidden');
+    updateLiveHud();
 }
+
+
 async function commitTransaction() {
-    const _0x9d0dba = _0x42411d,
-        _0x513b53 = parseFloat(document['getElementById']('tx-amount')['value']),
-        _0x50e21a = document['getElementById']('tx-debit')[_0x9d0dba(0x375)],
-        _0x314fab = document[_0x9d0dba(0x320)](_0x9d0dba(0x31e))[_0x9d0dba(0x375)],
-        _0xbb4ef = document[_0x9d0dba(0x320)](_0x9d0dba(0x319))[_0x9d0dba(0x375)] || _0x9d0dba(0x2f3);
-    if (_0x50e21a === _0x314fab || isNaN(_0x513b53) || _0x513b53 <= 0x0) return showCustomAlert('Strategy\x20Error:<br><br>\x20A\x20transaction\x20must\x20move\x20value\x20between\x20two\x20different\x20accounts.');
-    const _0x54f2f1 = {
-        'id': Date[_0x9d0dba(0x322)](),
-        'debit': _0x50e21a,
-        'credit': _0x314fab,
-        'amount': _0x513b53,
-        'desc': _0xbb4ef
+    const amt = parseFloat(document.getElementById('tx-amount').value);
+    const debitAcc = document.getElementById('tx-debit').value;
+    const creditAcc = document.getElementById('tx-credit').value;
+    const description = document.getElementById('tx-desc').value || "Market Exchange";
+
+    if(debitAcc === creditAcc || isNaN(amt) || amt <= 0) {
+        return showCustomAlert("Strategy Error:<br><br> A transaction must move value between two different accounts.");
+    }
+
+    const tx = { 
+        id: Date.now(), 
+        debit: debitAcc, 
+        credit: creditAcc, 
+        amount: amt, 
+        desc: description 
     };
-    state['transactions']['unshift'](_0x54f2f1), await saveData('tx', _0x54f2f1), typeof saveBackup === _0x9d0dba(0x234) && (await saveBackup(), !backupDirHandle && await setupBackupFolder()), closeTxModal(), nav(_0x9d0dba(0x23e));
+
+    state.transactions.unshift(tx);
+       await saveData("tx", tx);
+    
+    if (typeof saveBackup === "function") {
+        await saveBackup();
+
+        if (!backupDirHandle) {
+            await setupBackupFolder();
+        }
+    }
+
+    closeTxModal();
+    nav('dash');
 }
 
-function addObligationRow(_0x29df3a = '', _0xaebb9d = '') {
-    const _0x5c7c74 = _0x42411d,
-        _0x23a38d = document[_0x5c7c74(0x289)](_0x5c7c74(0x24a));
-    _0x23a38d[_0x5c7c74(0x351)] = 'flex\x20gap-2', _0x23a38d[_0x5c7c74(0x37b)] = _0x5c7c74(0x33b) + _0x29df3a + _0x5c7c74(0x2a7) + _0xaebb9d + _0x5c7c74(0x20b), document[_0x5c7c74(0x320)]('obligation-list')['appendChild'](_0x23a38d);
+function addObligationRow(label = "", val = "") {
+    const div = document.createElement('div');
+    div.className = "flex gap-2";
+    div.innerHTML = `<input type="text" placeholder="Rent" value="${label}" class="flex-1 p-2 text-sm"><input type="number" placeholder="KSh" value="${val}" class="w-24 p-2 text-sm"><button onclick="this.parentElement.remove()" class="text-red-500 font-bold">×</button>`;
+    document.getElementById('obligation-list').appendChild(div);
 }
 
-function _0x3115() {
-    const _0x3ea1fa = ['abs', 'createElement', 'Payroll', 'preventDefault', 'transactions', 'width', 'System\x20requires\x20ID.', 'height', 'TravisGuardian_v5_8', 'book', '\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<div\x20class=\x22glass\x20overflow-hidden\x20rounded-xl\x20border\x20border-slate-800\x22>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<table\x20class=\x22w-full\x20text-left\x20border-collapse\x22>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<thead>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<tr\x20class=\x22bg-slate-900/80\x20text-[10px]\x20font-black\x20uppercase\x20tracking-widest\x20text-slate-500\x22>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<th\x20class=\x22p-4\x20border-b\x20border-slate-800\x22>Date</th>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<th\x20class=\x22p-4\x20border-b\x20border-slate-800\x22>Transaction\x20Details</th>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<th\x20class=\x22p-4\x20border-b\x20border-slate-800\x20text-right\x22>Debit\x20(+)</th>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<th\x20class=\x22p-4\x20border-b\x20border-slate-800\x20text-right\x22>Credit\x20(-)</th>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20</tr>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20</thead>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<tbody>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20', 'hud-cap', 'getContext', 'salary', 'warn', 'habit', 'UNDETERMINED', '3758502egLffv', 'script.js', 'general', '\x20Network\x20/\x20server\x20error:', 'NECESSARY\x20EXPENSES\x20(Must\x20pay)', 'sort', 'shoes', '#4ade80', 'outing', 'remove', 'daily', 'Credit', 'Loan\x20Repayment', 'transport\x20&\x20fuel', '\x22\x20class=\x22flex-1\x20p-2\x20text-sm\x22><input\x20type=\x22number\x22\x20placeholder=\x22KSh\x22\x20value=\x22', 'desc', 'This\x20is\x20a\x20luxury\x20spend\x20and\x20it\x27s\x20well\x20above\x20your\x20daily\x20cap.\x20After\x20this,\x20you\x27d\x20be\x20left\x20with\x20only\x20KSh\x20', 'createWritable', 'fingerprint', '<div\x20class=\x22mt-4\x22>Current\x20status:\x20<span\x20style=\x22color:', 'toLocaleString', '</p></div>\x0a\x20\x20\x20\x20\x20\x20\x20\x20<div\x20class=\x22glass\x20p-4\x20border-l-4\x20border-red-500\x22><p\x20class=\x22text-[10px]\x20opacity-40\x20uppercase\x22>Reserved\x20Bills</p><p\x20class=\x22text-xl\x20font-bold\x22>KSh\x20', 'name', 'tx-amount', 'tempBackupFileHandle', '<div\x20class=\x22glass\x20p-6\x20neon-border\x22>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<div\x20class=\x22flex\x20justify-between\x20items-center\x20mb-6\x22><h3\x20class=\x22text-2xl\x20font-black\x20uppercase\x20italic\x22>Mandatory\x20Reserve</h3><button\x20onclick=\x22document.getElementById(\x27setup-overlay\x27).classList.remove(\x27hidden\x27)\x22\x20class=\x22text-[10px]\x20border\x20border-slate-700\x20px-2\x20py-1\x22>EDIT\x20LIST</button></div>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20', '\x20|\x20', '</span><span\x20class=\x22leak-red\x20font-bold\x22>+KSh\x20', '</div>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<div\x20class=\x22flex\x20items-center\x20gap-2\x20mt-1\x22>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<span\x20class=\x22text-[9px]\x20bg-green-900/30\x20text-green-400\x20px-1\x20rounded\x20font-bold\x22>', 'type', 'push', 'querySelectorAll', 'Service\x20Revenue', '<div\x20class=\x22text-5xl\x20mb-2\x22></div>', 'getFileHandle', '#eab308', '.json', 'analyticsChart', 'obligations', 'personal', 'ASSETS\x20(What\x20the\x20business\x20owns)', '\x20font-black\x20text-sm\x20uppercase\x22>', 'toUpperCase', '</p></div>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<div\x20class=\x22text-right\x22>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<p\x20class=\x22', 'Cost\x20of\x20Goods\x20Sold', 'objectStoreNames', 'dailyCap', 'userChoice', 'substring', 'MODERATE', 'ask', 'Restore\x20flow\x20error:', 'daysRem', 'text-yellow-500', 'display-mode', 'No\x20backup\x20file\x20handle\x20available', 'getItem', '⚠️\x20INSOLVENT', 'liquid', '441FrJKuJ', ';\x20margin-top:12px;\x20font-weight:bold;\x22>', 'write', 'style', 'doing', 'fillStyle', 'scrollTop', './sw.js', '\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<div\x20class=\x22grid\x20grid-cols-1\x20lg:grid-cols-3\x20gap-6\x22>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<div\x20class=\x22lg:col-span-1\x20space-y-4\x22>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<div\x20class=\x22glass\x20p-6\x20border-l-4\x22\x20style=\x22border-color:\x20', 'join', '🛡️\x20SYSTEM\x20STABLE', 'Installed!\x20Reopen\x20from\x20home\x20screen.', 'random', 'safeCash', 'paid', '</p>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20', 'chat-input', '#22c55e', 'Install\x20not\x20available\x20yet\x20–\x20check\x20console\x20/\x20Lighthouse', 'LIABILITIES\x20&\x20TRANSFERS', 'oncomplete', 'toString', 'error', '\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20</td>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<td\x20class=\x22p-4\x22>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<div\x20class=\x22font-black\x20italic\x20uppercase\x20text-slate-200\x22>', '\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20</tbody>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20</table>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20</div>', '</div>', 'sw.js', '<div\x20style=\x22padding:50px;text-align:center;background:white;border-radius:16px;max-width:400px;\x22><p\x20style=\x22color:green;font-size:19px;\x22>✅\x20Everything\x20restored!<br>Reloading\x20nice\x20UI...</p></div>', 'Bank/M-Pesa', '64wRfOPY', 'appendChild', 'Market\x20Exchange', 'forEach', 'NECESSARY\x20OPERATING\x20EXPENSES', 'rent', 'If\x20I\x20were\x20you,\x20I\x27d\x20cap\x20it\x20at\x20KSh\x20', 'travis-finance-backup.json', '\x22</div>', 'label', 'Tools', 'btn-b', 'index.html', 'filter', 'appinstalled', 'Rent', '</p></div>\x0a\x20\x20\x20\x20', 'activation-overlay', 'User\x20cancelled\x20folder\x20picker', 'toLowerCase', 'close', 'stringify', 'tz-unknown', 'Accounts\x20Receivable', 'from', 'reload', 'TRAVIS-GUARDIAN-SECURE-2026-x7k9', 'showDirectoryPicker', '<div\x20class=\x22text-left\x20flex\x20gap-2\x22><div\x20class=\x22text-[#4ade80]\x20font-black\x20text-[10px]\x20mt-1\x22>TRV:</div><span\x20class=\x22travis-msg\x20text-sm\x20inline-block\x22>', 'pending', 'Travel', 'get', 'innerText', 'transport', 'app', '\x20on\x20<span\x20class=\x22text-yellow-400\x22>', 'Service\x20worker\x20failed\x20–\x20install\x20may\x20not\x20work', 'readonly', '\x20per\x20day\x20left.', 'Side\x20Hustle', 'tx-desc', 'Enter', 'target', 'Restore\x20failed', 'hidden', 'tx-credit', '6657186voEZnz', 'getElementById', 'some', 'now', 'score', '#3b82f6', 'school', 'business', 'text/html', '<p\x20class=\x22opacity-30\x22>No\x20obligations.</p>', 'Could\x20not\x20read\x20the\x20backup\x20file:\x20', 'TravisGuardian\x20•\x202026', 'contains', 'reduce', '🔄\x20Rebuilding\x20UI\x20from\x20device\x20files\x20before\x20showing\x20recovery...', 'UA-unknown', 'spending\x20habit', 'createObjectStore', 'M-Pesa', 'text/css', '<div\x20class=\x22text-xl\x22>Got\x20it\x20—\x20let\x27s\x20talk\x20money.</div>', 'No\x20valid\x20device\x20fingerprint\x20found.<br><br>Please\x20restart\x20installation\x20process.', 'luxury\x20/\x20secondary', 'onload', '7HKTvyK', 'custom-alert-message', '<div\x20class=\x22flex\x20justify-between\x20border-b\x20border-red-900/30\x20py-2\x22><span\x20class=\x22text-xs\x20uppercase\x22>', 'how\x20is', '<input\x20type=\x22text\x22\x20placeholder=\x22Rent\x22\x20value=\x22', 'dashboard-grid', 'matches', 'onsuccess', '<div\x20class=\x22text-[#4ade80]\x20text-2xl\x20mb-4\x22>You\x20asked:\x20\x22', 'xx-XX', 'parentNode', 'amount', '<div\x20class=\x22text-xl\x22>You\x27re\x20considering\x20spending\x20KSh\x20', 'Cash', 'catch', 'Ready\x20to\x20install\x20–\x20click\x20below', 'CRITICAL', 'charCodeAt', 'success', 'This\x20fits\x20inside\x20your\x20daily\x20cap\x20—\x20safe\x20for\x20a\x20necessary\x20spend.', 'Medical', 'fees', 'variance', 'load', 'map', '#069', 'className', 'credit', 'Travel\x20&\x20Entertainment', 'Confirm\x20system\x20purge?\x20All\x20financial\x20history\x20will\x20be\x20deleted.', 'chat-box', '\x20OVER</p>', '<div\x20class=\x22mt-6\x20text-2xl\x20font-bold\x22>Your\x20recent\x20spending\x20looks\x20moderate\x20—\x20mostly\x20within\x20cap.\x20But\x20we\x27ve\x20had\x20a\x20few\x20lifestyle\x20questions\x20lately...\x20let\x27s\x20tighten\x20up\x20a\x20bit\x20to\x20stay\x20green.</div>', 'documents', '<div\x20class=\x22mt-6\x20text-2xl\x20font-bold\x22>Everything\x20still\x20looks\x20stable.\x20Anything\x20specific\x20you\x20want\x20to\x20plan\x20for?</div>', 'message', 'act-code', 'clear', 'includes', 'hardwareConcurrency', '2340288MVxLtH', 'Server\x20rejected:', '\x0a\x20\x20\x20\x20\x20\x20\x20\x20<div\x20style=\x22position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.78);display:flex;align-items:center;justify-content:center;z-index:9999;font-family:system-ui,sans-serif;\x22>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<div\x20style=\x22background:white;border-radius:16px;max-width:460px;width:92%;box-shadow:0\x2025px\x2070px\x20rgba(0,0,0,0.3);overflow:hidden;\x22>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<div\x20style=\x22background:linear-gradient(135deg,#1e3a8a,#3b82f6);color:white;padding:28px\x2024px;text-align:center;\x22>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<h2\x20style=\x22margin:0\x200\x208px\x200;font-size:1.5rem;\x22>Travis\x20Guardian</h2>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<p\x20style=\x22margin:0;opacity:0.95;\x22>Your\x20Personal\x20Financial\x20Advisor</p>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20</div>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<div\x20style=\x22padding:32px\x2028px;text-align:center;\x22>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<div\x20style=\x22width:70px;height:70px;background:#f0f9ff;color:#1e40af;font-size:36px;border-radius:50%;margin:0\x20auto\x2020px;display:flex;align-items:center;justify-content:center;border:5px\x20solid\x20#e0f2fe;\x22>📁</div>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<h3\x20style=\x22margin:0\x200\x2016px\x200;font-size:1.35rem;color:#1e3a8a;\x22>Restore\x20Everything?</h3>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<p\x20style=\x22color:#475569;line-height:1.6;margin-bottom:28px;font-size:1.02rem;\x22>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20Browser\x20data\x20was\x20cleared.<br>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20Select\x20your\x20backup\x20file\x20to\x20restore\x20<strong>financial\x20data\x20+\x20UI</strong>.\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20</p>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<div\x20style=\x22display:flex;flex-direction:column;gap:12px;margin-bottom:20px;\x22>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<button\x20id=\x22restore-btn\x22\x20style=\x22background:#1e40af;color:white;border:none;padding:16px\x2024px;font-size:1.05rem;font-weight:600;border-radius:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;\x22>Select\x20Backup\x20File\x20&\x20Restore\x20All</button>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<button\x20id=\x22skip-btn\x22\x20style=\x22background:transparent;color:#64748b;border:2px\x20solid\x20#cbd5e1;padding:14px\x2024px;font-size:1rem;font-weight:500;border-radius:10px;cursor:pointer;\x22>Continue\x20as\x20New\x20User</button>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20</div>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<p\x20style=\x22margin:0;font-size:0.82rem;color:#64748b;\x22>First-time\x20users:\x20choose\x20“Continue\x20as\x20New\x20User”</p>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20</div>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20</div>\x0a\x20\x20\x20\x20\x20\x20\x20\x20</div>\x0a\x20\x20\x20\x20', '<div\x20style=\x22padding:30px;text-align:center;color:red;background:white;border-radius:16px;\x22><p>❌\x20', 'floor', 'monthly\x20obligation', 'scrollHeight', 'parse', 'Fixed\x20Assets', 'install-status', 'meta', '</p></div>\x0a\x20\x20\x20\x20\x20\x20\x20\x20<div\x20class=\x22glass\x20p-4\x20border-l-4\x20border-[#4ade80]\x22><p\x20class=\x22text-[10px]\x20opacity-40\x20uppercase\x22>Survival\x20Window</p><p\x20class=\x22text-xl\x20font-bold\x22>', '447065KxwfSf', 'backupHandle', 'userAgent', '\x20Days</p></div>\x0a\x20\x20\x20\x20\x20\x20\x20\x20<div\x20class=\x22glass\x20p-4\x20border-l-4\x20border-purple-500\x22><p\x20class=\x22text-[10px]\x20opacity-40\x20uppercase\x22>Daily\x20Ceiling</p><p\x20class=\x22text-xl\x20font-bold\x22>KSh\x20', '%\x22></div></div>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<p\x20class=\x22text-[9px]\x20mt-2\x20opacity-50\x20italic\x22>Based\x20on\x207D\x20Velocity\x20vs.\x20Projected\x20Ceiling.</p>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20</div>\x0a\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<div\x20class=\x22glass\x20p-6\x20border-l-4\x20border-red-500\x20bg-red-950/10\x22>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<p\x20class=\x22text-[10px]\x20text-red-500\x20font-bold\x20uppercase\x20tracking-widest\x20mb-4\x22>Leak\x20Finder</p>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<div\x20class=\x22space-y-1\x22>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20', '/activate-fingerprint', '<div\x20class=\x22mt-6\x20text-2xl\x20font-bold\x22>', '</p><button\x20onclick=\x22location.reload()\x22\x20style=\x22margin-top:15px;padding:12px\x2024px;\x22>Try\x20Again</button></div>', '<div\x20class=\x22mt-6\x20text-2xl\x20font-bold\x20text-[#ef4444]\x22>Tight\x20right\x20now.\x20Next\x20few\x20days\x20could\x20be\x20stressful\x20unless\x20we\x20cut\x20back\x20hard.</div>', 'custom-alert-ok', 'value', '617040qFOQni', 'addEventListener', '#d97706', 'match', '<tr><td\x20colspan=\x224\x22\x20class=\x22p-10\x20text-center\x20opacity-30\x20italic\x20font-bold\x20uppercase\x20tracking-widest\x22>No\x20entries\x20found\x20in\x20the\x20archives.</td></tr>', 'innerHTML', '</span></div>', 'Petty\x20Cash', '\x20per\x20day\x20—\x20tight\x20squeeze.', 'canvas-fail', 'serviceWorker', 'Restore\x20operation\x20failed\x20during\x20write:', 'TravisGuardian_v1.0', 'toDateString', 'short', 'onupgradeneeded', 'onclick', 'display-name', 'length', 'result', '<div\x20class=\x22max-w-4xl\x20glass\x20p-6\x20mx-auto\x20flex\x20flex-col\x20h-[550px]\x20neon-border\x22>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<div\x20id=\x22chat-box\x22\x20class=\x22flex-1\x20overflow-y-auto\x20space-y-4\x20mb-4\x20pr-2\x20flex\x20flex-col\x22>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<div\x20class=\x22travis-msg\x20text-xs\x20italic\x22>Probability\x20Engine\x20and\x20Leak\x20Finder\x20active.\x20How\x20can\x20I\x20protect\x20your\x20capital?</div>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20</div>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<div\x20class=\x22flex\x20gap-2\x20p-2\x20bg-slate-900\x20border-2\x20border-slate-800\x22>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<input\x20id=\x22chat-input\x22\x20type=\x22text\x22\x20placeholder=\x22Consult\x20Travis...\x22\x20class=\x22flex-1\x20p-4\x20bg-transparent\x20border-none\x22>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<button\x20onclick=\x22handleAsk()\x22\x20class=\x22bg-[#4ade80]\x20text-black\x20px-8\x20font-black\x20rounded\x20uppercase\x22>Send</button>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20</div>\x0a\x20\x20\x20\x20\x20\x20\x20\x20</div>', 'getMonth', 'activated', 'Your\x20browser\x20does\x20not\x20support\x20file\x20selection.', '\x20Reserved', 'install-overlay', 'Stock', 'Failed\x20to\x20backup\x20', 'Installed!<br><br>\x20Close\x20this\x20tab\x20→\x20open\x20from\x20home\x20screen\x20to\x20activate.', 'hud-warning', 'color', 'destroy', 'restore-btn', 'open', '.css', '\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<button\x20onclick=\x22factoryReset()\x22\x20class=\x22mt-20\x20text-red-900\x20text-[10px]\x20font-bold\x20uppercase\x20tracking-widest\x20hover:text-red-500\x22>Full\x20System\x20Wipe</button>\x0a\x20\x20\x20\x20\x20\x20\x20\x20</div>', 'text/javascript', '\x22>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<p\x20class=\x22text-[10px]\x20opacity-40\x20uppercase\x20tracking-widest\x22>Insolvency\x20Risk\x20Score</p>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<h1\x20class=\x22text-4xl\x20font-black\x20mb-3\x22\x20style=\x22color:\x20', 'turn\x20up', 'toLocaleDateString', 'getAll', '-5634', 'You\x20can\x20do\x20it,\x20but\x20think\x20twice\x20—\x20is\x20it\x20worth\x20the\x20pattern?\x20Log\x20it\x20so\x20we\x20can\x20watch.', 'Silent\x20backup\x20failed', '\x22\x20class=\x22w-24\x20p-2\x20text-sm\x22><button\x20onclick=\x22this.parentElement.remove()\x22\x20class=\x22text-red-500\x20font-bold\x22>×</button>', 'getDate', 'conversationCount', 'fuel', '.js', '<div\x20class=\x22mt-6\x20text-2xl\x20font-bold\x20text-[#eab308]\x22>Yellow\x20zone\x20—\x20things\x20are\x20okay\x20but\x20watch\x20spending.\x20Next\x203\x20days\x20look\x20manageable\x20if\x20we\x20stay\x20disciplined.</div>', 'add', 'No\x20file\x20handle', '260768FEsxUQ', '#obligation-list\x20>\x20div', 'App\x20already\x20installed', 'rgba(239,\x2068,\x2068,\x200.1)', 'btn-p', 'travis_core.html', '155284MCWqUa', 'club', 'showOpenFilePicker', 'tailwind-app.css', 'custom-alert', '</span>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20</div>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20</td>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<td\x20class=\x22p-4\x20text-right\x20text-green-400\x20font-black\x20tracking-tighter\x22>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20+', 'Travis\x20Finance\x20Backup', 'skip-btn', '\x20School', 'trim', '14px\x20\x27Arial\x27', '✅\x20Normal\x20healthy\x20startup\x20-\x20no\x20recovery\x20needed', 'install-btn', 'keypress', 'status', '</h1>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<div\x20class=\x22risk-heatmap\x20overflow-hidden\x22><div\x20class=\x22bg-white/20\x20h-full\x22\x20style=\x22width:\x20', 'SPEND', 'borderColor', 'Strong\x20advice:\x20don\x27t\x20do\x20the\x20full\x20amount.\x20If\x20you\x20really\x20want\x20it,\x20limit\x20to\x20KSh\x20', '</h1>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20</div>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20</div>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<div\x20class=\x22lg:col-span-2\x20glass\x20p-6\x20neon-border\x20relative\x20min-h-[350px]\x22>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<h3\x20class=\x22text-xs\x20font-black\x20uppercase\x20tracking-widest\x20text-slate-400\x20mb-4\x22>Performance\x20Analytics</h3>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<div\x20class=\x22h-[300px]\x22><canvas\x20id=\x22analyticsChart\x22></canvas></div>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20</div>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20</div>', 'focus', 'Restore\x20aborted\x20-\x20read\x20error:', 'config', 'getFullYear', 'prompt', 'Settled', 'cloneNode', 'function', 'Utilities', 'TRV-KE-', 'disabled', 'INCOME\x20(Money\x20coming\x20in\x20-\x20GOOD!)', '\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20</div>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20</div>\x0a\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<div\x20class=\x22glass\x20p-6\x20border-l-4\x20border-[#4ade80]\x22>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<p\x20class=\x22text-[10px]\x20opacity-40\x20uppercase\x20tracking-widest\x22>Disposable\x20Buffer</p>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<h1\x20class=\x22text-4xl\x20font-black\x22>KSh\x20', '\x20STRATEGY\x20ENGINE', 'input-app.css', 'accepted', 'text', 'dash', 'endsWith', '<p\x20class=\x22text-[10px]\x20opacity-30\x20italic\x22>No\x20budget\x20variances\x20detected.</p>', 'LOW', '\x0a\x20\x20\x20\x20\x20\x20\x20\x20<div\x20class=\x22glass\x20p-4\x20border-l-4\x20border-blue-500\x22><p\x20class=\x22text-[10px]\x20opacity-40\x20uppercase\x22>Total\x20Liquid</p><p\x20class=\x22text-xl\x20font-bold\x22>KSh\x20', 'tempType', 'Other\x20Fun\x20Spending', 'Allowance', 'riskColor', 'clothes', 'Backup\x20file\x20was\x20empty\x20or\x20invalid', 'travisChart', 'div', 'Marketing', 'Other\x20Revenue', 'register', 'Restoring\x20data\x20+\x20UI...', '<div\x20class=\x22mt-6\x20text-xs\x20italic\x20text-yellow-300\x22>Noticing\x20a\x20pattern\x20of\x20spending\x20questions...\x20want\x20me\x20to\x20lock\x20in\x20a\x20weekly\x20cap\x20so\x20we\x20stay\x20safer?</div>', '#ef4444', 'recovery-overlay', 'replace', '\x20days.', 'debit', 'User\x20cancelled\x20or\x20error\x20occurred', 'rgba(74,\x20222,\x20128,\x200.1)', 'colorDepth', 'objectStore', 'fillText', '#334155', 'replaceChild', 'Invalid\x20activation\x20code.', 'put', 'arrayBuffer', 'getFile', 'application/json', 'user', 'en-KE', '\x20Entertainment', '\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20</td>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20</tr>', 'riskLabel', '#94a3b8', 'This\x20is\x20important,\x20but\x20it\x27s\x20above\x20your\x20daily\x20cap\x20(KSh\x20', 'setItem', 'obs', 'display', '</p><p\x20class=\x22text-[10px]\x20opacity-40\x20uppercase\x22>Budget:\x20', 'matchMedia', 'ASSETS\x20(Money\x20you\x20have)', 'onerror', 'food', 'Bills', 'setDate', 'travis-ui-cache-v1', 'blob', 'log', 'REVENUE\x20(Money\x20coming\x20in\x20-\x20GOOD!)', '<div\x20class=\x22text-xl\x22>Let\x20me\x20give\x20you\x20a\x20quick\x20read\x20on\x20your\x20situation\x20today...</div>', 'max', 'find', 'font', 'Inventory', '|||', 'obsStatus', 'then', 'REVENUE', 'classList', 'header-verdict', 'readwrite', 'It\x27s\x20within\x20daily\x20cap\x20but\x20it\x27s\x20not\x20essential.', 'setup-overlay', 'line', 'top', 'DISCRETIONARY\x20/\x20AVOIDABLE\x20EXPENSES', 'transaction'];
-    _0x3115 = function() {
-        return _0x3ea1fa;
-    };
-    return _0x3115();
+function setUserType(t) {
+    state.tempType = t;
+    document.getElementById('btn-p').style.borderColor = t==='personal'?'#4ade80':'#334155';
+    document.getElementById('btn-b').style.borderColor = t==='business'?'#4ade80':'#334155';
 }
 
-function setUserType(_0x150d62) {
-    const _0x20226 = _0x42411d;
-    state['tempType'] = _0x150d62, document[_0x20226(0x320)](_0x20226(0x217))[_0x20226(0x2d7)][_0x20226(0x22a)] = _0x150d62 === _0x20226(0x2c0) ? '#4ade80' : _0x20226(0x25a), document[_0x20226(0x320)](_0x20226(0x2fc))[_0x20226(0x2d7)]['borderColor'] = _0x150d62 === _0x20226(0x326) ? _0x20226(0x2a0) : _0x20226(0x25a);
-}
 async function finalizeSetup() {
-    const _0x5b0687 = _0x42411d,
-        _0x4ea818 = document[_0x5b0687(0x320)]('user-name')[_0x5b0687(0x375)],
-        _0x412a23 = Array[_0x5b0687(0x309)](document[_0x5b0687(0x2b8)](_0x5b0687(0x214)))[_0x5b0687(0x34f)](_0x5cf7e3 => ({
-            'label': _0x5cf7e3[_0x5b0687(0x2b8)]('input')[0x0]['value'],
-            'amount': parseFloat(_0x5cf7e3['querySelectorAll']('input')[0x1][_0x5b0687(0x375)]) || 0x0
-        }))[_0x5b0687(0x2fe)](_0x269090 => _0x269090[_0x5b0687(0x2fa)]);
-    if (!_0x4ea818 || !state[_0x5b0687(0x243)]) return showCustomAlert(_0x5b0687(0x28e));
-    state[_0x5b0687(0x261)] = {
-        'name': _0x4ea818,
-        'type': state[_0x5b0687(0x243)]
-    }, state[_0x5b0687(0x2bf)] = _0x412a23, await saveData(_0x5b0687(0x369), {
-        'id': _0x5b0687(0x22f),
-        'user': state[_0x5b0687(0x261)],
-        'obligations': state[_0x5b0687(0x2bf)]
-    }), typeof saveBackup === _0x5b0687(0x234) && await saveBackup(), location[_0x5b0687(0x30a)]();
+    const name = document.getElementById('user-name').value;
+    const obs = Array.from(document.querySelectorAll('#obligation-list > div')).map(row => ({
+        label: row.querySelectorAll('input')[0].value,
+        amount: parseFloat(row.querySelectorAll('input')[1].value) || 0
+    })).filter(o => o.label);
+    if(!name || !state.tempType) return showCustomAlert("System requires ID.");
+    state.user = { name, type: state.tempType };
+    state.obligations = obs;
+    await saveData("meta", { id: "config", user: state.user, obligations: state.obligations });
+    
+    if (typeof saveBackup === "function") {
+        await saveBackup();
+    }
+    
+    location.reload();
 }
+
 async function factoryReset() {
-    const _0x47b56e = _0x42411d;
-    confirm(_0x47b56e(0x354)) && (indexedDB['deleteDatabase'](_0x47b56e(0x290)), location[_0x47b56e(0x30a)]());
-}
-async function boot() {
-    const _0x1ec050 = _0x42411d;
-    startFingerprintBackgroundProbe(), await initDB();
-    const _0x51f6f0 = await getData(_0x1ec050(0x369), _0x1ec050(0x22f));
-    _0x51f6f0 ? (state[_0x1ec050(0x261)] = _0x51f6f0['user'], state['obligations'] = _0x51f6f0[_0x1ec050(0x2bf)], state[_0x1ec050(0x28c)] = (await getAllData('tx'))[_0x1ec050(0x29e)]((_0x56b397, _0x311f88) => _0x311f88['id'] - _0x56b397['id']), document['getElementById'](_0x1ec050(0x1f0))['innerText'] = state['user']['name'], document[_0x1ec050(0x320)]('display-mode')['innerText'] = state[_0x1ec050(0x261)][_0x1ec050(0x2b6)] + _0x1ec050(0x23a), nav(_0x1ec050(0x23e))) : document[_0x1ec050(0x320)]('setup-overlay')[_0x1ec050(0x27f)][_0x1ec050(0x2a2)](_0x1ec050(0x31d));
-}
-async function saveData(_0x53e817, _0x2a4ac5) {
-    const _0x53081f = _0x42411d,
-        _0x47ee46 = db['transaction'](_0x53e817, _0x53081f(0x281));
-    return _0x47ee46[_0x53081f(0x258)](_0x53e817)[_0x53081f(0x25d)](_0x2a4ac5), new Promise(_0x38831d => _0x47ee46['oncomplete'] = _0x38831d);
-}
-async function getData(_0x4b2d00, _0x27430b) {
-    const _0x468ab3 = _0x42411d,
-        _0x2e5fb0 = db[_0x468ab3(0x287)](_0x4b2d00, _0x468ab3(0x316)),
-        _0x176ae4 = _0x2e5fb0[_0x468ab3(0x258)](_0x4b2d00)[_0x468ab3(0x310)](_0x27430b);
-    return new Promise(_0x26abbc => _0x176ae4[_0x468ab3(0x33e)] = () => _0x26abbc(_0x176ae4[_0x468ab3(0x1f2)]));
-}
-async function getAllData(_0x3dec1b) {
-    const _0x34c8ba = _0x42411d,
-        _0x418944 = db[_0x34c8ba(0x287)](_0x3dec1b, _0x34c8ba(0x316)),
-        _0x218aa4 = _0x418944[_0x34c8ba(0x258)](_0x3dec1b)['getAll']();
-    return new Promise(_0x126652 => _0x218aa4[_0x34c8ba(0x33e)] = () => _0x126652(_0x218aa4[_0x34c8ba(0x1f2)]));
+    if(confirm("Confirm system purge? All financial history will be deleted.")) {
+        indexedDB.deleteDatabase("TravisGuardian_v5_8");
+        location.reload();
+    }
 }
 
-function closeTxModal() {
-    const _0xb77515 = _0x42411d;
-    document[_0xb77515(0x320)]('tx-modal')[_0xb77515(0x27f)][_0xb77515(0x211)]('hidden'), document[_0xb77515(0x320)](_0xb77515(0x2b0))['value'] = '';
-}
-
-function _0x409f(_0x2d5204, _0x35a7f3) {
-    _0x2d5204 = _0x2d5204 - 0x1ef;
-    const _0x31153c = _0x3115();
-    let _0x409ffc = _0x31153c[_0x2d5204];
-    return _0x409ffc;
-}
-window[_0x42411d(0x336)] = boot;
 async function boot() {
-    const _0x27ab36 = _0x42411d;
+
+    startFingerprintBackgroundProbe();
+
     await initDB();
-    let _0x12ea55 = await getData(_0x27ab36(0x369), _0x27ab36(0x22f)) || {
-        'activated': ![]
-    };
-    const _0xc3a50a = window[_0x27ab36(0x26c)]('(display-mode:\x20standalone)')[_0x27ab36(0x33d)] || navigator['standalone'] === !![];
-    await new Promise(_0x307aea => setTimeout(_0x307aea, 0x320));
-    if (!_0x12ea55[_0x27ab36(0x1f5)]) _0xc3a50a ? (document[_0x27ab36(0x320)](_0x27ab36(0x302))['classList'][_0x27ab36(0x2a2)](_0x27ab36(0x31d)), document[_0x27ab36(0x320)](_0x27ab36(0x1f8))[_0x27ab36(0x27f)][_0x27ab36(0x211)](_0x27ab36(0x31d)), document[_0x27ab36(0x320)](_0x27ab36(0x313))[_0x27ab36(0x27f)][_0x27ab36(0x211)](_0x27ab36(0x31d))) : (document[_0x27ab36(0x320)](_0x27ab36(0x1f8))['classList'][_0x27ab36(0x2a2)](_0x27ab36(0x31d)), document['getElementById']('activation-overlay')[_0x27ab36(0x27f)][_0x27ab36(0x211)]('hidden'), document[_0x27ab36(0x320)](_0x27ab36(0x313))['classList'][_0x27ab36(0x211)]('hidden'));
-    else !_0x12ea55['user'] ? (document[_0x27ab36(0x320)](_0x27ab36(0x283))[_0x27ab36(0x27f)][_0x27ab36(0x2a2)](_0x27ab36(0x31d)), document['getElementById'](_0x27ab36(0x1f8))[_0x27ab36(0x27f)][_0x27ab36(0x211)](_0x27ab36(0x31d)), document[_0x27ab36(0x320)](_0x27ab36(0x313))[_0x27ab36(0x27f)][_0x27ab36(0x211)](_0x27ab36(0x31d))) : (state[_0x27ab36(0x261)] = _0x12ea55['user'], state[_0x27ab36(0x2bf)] = _0x12ea55[_0x27ab36(0x2bf)], state[_0x27ab36(0x28c)] = (await getAllData('tx'))[_0x27ab36(0x29e)]((_0x63f65d, _0x2cb449) => _0x2cb449['id'] - _0x63f65d['id']), document[_0x27ab36(0x320)](_0x27ab36(0x1f0))['innerText'] = state[_0x27ab36(0x261)]['name'], document[_0x27ab36(0x320)](_0x27ab36(0x2cf))[_0x27ab36(0x311)] = state[_0x27ab36(0x261)][_0x27ab36(0x2b6)] + _0x27ab36(0x23a), document['getElementById'](_0x27ab36(0x313))[_0x27ab36(0x27f)][_0x27ab36(0x2a2)](_0x27ab36(0x31d)), document['getElementById'](_0x27ab36(0x1f8))[_0x27ab36(0x27f)][_0x27ab36(0x211)](_0x27ab36(0x31d)), document[_0x27ab36(0x320)](_0x27ab36(0x283))['classList'][_0x27ab36(0x211)](_0x27ab36(0x31d)), nav(_0x27ab36(0x23e)));
+    const meta = await getData("meta", "config");
+    if(meta) {
+        state.user = meta.user;
+        state.obligations = meta.obligations;
+        state.transactions = (await getAllData("tx")).sort((a,b) => b.id - a.id);
+        document.getElementById('display-name').innerText = state.user.name;
+        document.getElementById('display-mode').innerText = state.user.type + " STRATEGY ENGINE";
+        nav('dash');
+    } else {
+        document.getElementById('setup-overlay').classList.remove('hidden');
+    }
 }
-document[_0x42411d(0x320)]('install-btn')?.[_0x42411d(0x377)]('click', triggerInstall), window[_0x42411d(0x336)] = boot;
+
+async function saveData(s, d) { const t = db.transaction(s, "readwrite"); t.objectStore(s).put(d); return new Promise(res => t.oncomplete = res); }
+async function getData(s, k) { const t = db.transaction(s, "readonly"); const r = t.objectStore(s).get(k); return new Promise(res => r.onsuccess = () => res(r.result)); }
+async function getAllData(s) { const t = db.transaction(s, "readonly"); const r = t.objectStore(s).getAll(); return new Promise(res => r.onsuccess = () => res(r.result)); }
+function closeTxModal() { document.getElementById('tx-modal').classList.add('hidden'); document.getElementById('tx-amount').value = ""; }
+
+window.onload = boot;
+
+
+async function boot() {
+  await initDB();
+  let meta = await getData("meta", "config") || { activated: false };
+
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches ||
+                       navigator.standalone === true;
+
+  await new Promise(r => setTimeout(r, 800));
+
+  if (!meta.activated) {
+    if (isStandalone) {
+      document.getElementById('activation-overlay').classList.remove('hidden');
+      document.getElementById('install-overlay').classList.add('hidden');
+      document.getElementById('app').classList.add('hidden');
+    } else {
+      document.getElementById('install-overlay').classList.remove('hidden');
+      document.getElementById('activation-overlay').classList.add('hidden');
+      document.getElementById('app').classList.add('hidden');
+    }
+  } else if (!meta.user) {
+    document.getElementById('setup-overlay').classList.remove('hidden');
+    document.getElementById('install-overlay').classList.add('hidden');
+    document.getElementById('app').classList.add('hidden');
+  } else {
+    state.user = meta.user;
+    state.obligations = meta.obligations;
+    state.transactions = (await getAllData("tx")).sort((a,b) => b.id - a.id);
+    document.getElementById('display-name').innerText = state.user.name;
+    document.getElementById('display-mode').innerText = state.user.type + " STRATEGY ENGINE";
+    document.getElementById('app').classList.remove('hidden');
+    document.getElementById('install-overlay').classList.add('hidden');
+    document.getElementById('setup-overlay').classList.add('hidden');
+    nav('dash');
+  }
+}
+
+document.getElementById('install-btn')?.addEventListener('click', triggerInstall);
+
+
+window.onload = boot;
