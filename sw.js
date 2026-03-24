@@ -1,83 +1,69 @@
 
-const CACHE_NAME = 'Travis_guardian-v1_0';  
+const CACHE_NAME = 'Travis_guardian-v1_0';
+
 const STATIC_ASSETS = [
-  '/',                       
+  '/',
   '/index.html',
   '/travis_core.html',
   '/input-app.css',
   '/input-landing.css',
   '/script.js',
-  'tailwind.config.js',
   '/tailwind-app.css',
-  '/tailwind-landing.css',   
+  '/tailwind-landing.css',
   '/manifest.json',
-  '/npm/chart.js',
-  
-
+  '/npm/charts'
 ];
 
-
 self.addEventListener('install', event => {
+  self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME)
-      .then(cache => {
-        console.log('[SW] Pre-caching static assets');
-        return cache.addAll(STATIC_ASSETS);
-      })
-      .catch(err => {
-        console.error('[SW] Pre-caching failed:', err);
-      })
+      .then(cache => cache.addAll(STATIC_ASSETS))
   );
-
-  self.skipWaiting();
 });
-
 
 self.addEventListener('activate', event => {
   event.waitUntil(
-    caches.keys().then(cacheNames => {
-      return Promise.all(
-        cacheNames.filter(name => name !== CACHE_NAME)
-          .map(name => {
-            console.log('[SW] Deleting old cache:', name);
-            return caches.delete(name);
-          })
-      );
-    })
-    .then(() => self.clients.claim())   
+    caches.keys().then(names =>
+      Promise.all(
+        names.filter(n => n !== CACHE_NAME).map(n => caches.delete(n))
+      )
+    ).then(() => self.clients.claim())
   );
 });
 
-
 self.addEventListener('fetch', event => {
-  if (event.request.method !== 'GET' || !event.request.url.startsWith('http')) {
+  const req = event.request;
+
+  if (req.url.includes('/activate-fingerprint')) {
+    event.respondWith(fetch(req));
+    return;
+  }
+
+  if (req.destination === 'script' || req.destination === 'document') {
+    event.respondWith(
+      fetch(req)
+        .then(res => {
+          const clone = res.clone();
+          caches.open(CACHE_NAME).then(cache => cache.put(req, clone));
+          return res;
+        })
+        .catch(() => caches.match(req))
+    );
     return;
   }
 
   event.respondWith(
-    caches.match(event.request)
-      .then(cachedResponse => {
-        if (cachedResponse) {
-          return cachedResponse;
-        }
+    caches.match(req).then(cached => {
+      if (cached) return cached;
 
-        return fetch(event.request)
-          .then(networkResponse => {
-     
-            if (!networkResponse || networkResponse.status !== 200 || networkResponse.type !== 'basic') {
-              return networkResponse;
-            }
+      return fetch(req).then(res => {
+        if (!res || res.status !== 200) return res;
 
-            const responseToCache = networkResponse.clone();
-
-            caches.open(CACHE_NAME)
-              .then(cache => cache.put(event.request, responseToCache));
-
-            return networkResponse;
-          })
-          .catch(() => {
-        
-          });
-      })
+        const clone = res.clone();
+        caches.open(CACHE_NAME).then(cache => cache.put(req, clone));
+        return res;
+      });
+    })
   );
 });
