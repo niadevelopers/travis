@@ -10,8 +10,7 @@ const STATIC_ASSETS = [
   '/script.js',
   '/tailwind-app.css',
   '/tailwind-landing.css',
-  '/manifest.json',
-  '/npm/charts'
+  '/manifest.json'
 ];
 
 self.addEventListener('install', event => {
