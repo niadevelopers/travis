@@ -175,7 +175,7 @@ app.post('/initiate-stk', auth, async (req, res) => {
       userId: req.user.id,
       targetPhone: cleanedTarget,    
       reference,
-      amount: 1,
+      amount: 750,
       msisdn: cleanedPayer.replace(/^0/, '254'),
       status: 'pending'
     });
@@ -185,7 +185,7 @@ app.post('/initiate-stk', auth, async (req, res) => {
     const payload = {
       api_key: process.env.PESAFLUX_API_KEY,
       email: process.env.PESAFLUX_EMAIL,
-      amount: 1,
+      amount: 750,
       msisdn: cleanedPayer.replace(/^0/, '254'),
       reference: reference
     };
