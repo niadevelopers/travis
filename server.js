@@ -8,6 +8,8 @@ const rateLimit = require('express-rate-limit');
 const axios = require('axios');
 
 const app = express();
+app.set('trust proxy', 1);   // ← trust proxy layer 1 so rate limiting doesnt bother me
+
 const PORT = process.env.PORT || 3000;
 
 const allowedOrigins = [
