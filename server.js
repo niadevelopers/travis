@@ -58,7 +58,7 @@ function cleanPhone(phone) {
 
 function isValidKenyanPhone(phone) {
   const cleaned = sanitizePhone(phone);
-  return /^(\+?254|0)[17]\d{8}$/.test(cleaned) && cleaned.length >= 10;
+  return /^(\+?254|0)[17]\d{8}$/.test(cleaned) && cleaned.length >= 9;
 }
 
 function sanitizeText(text) {
