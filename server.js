@@ -348,19 +348,33 @@ app.post('/pesaflux-webhook', async (req, res) => {
   }
 });
 
+app.get('/my-queries', auth, async (req, res) => {
+  const logs = await QueryLog.find({ userId: req.user.id }).sort({ queriedAt: -1 });
+
+  // Mask the target phone (last 3 digits hidden)
+  const maskedLogs = logs.map(log => {
+    const phone = log.targetPhone || '';
+    const maskedPhone = phone.length > 3 
+      ? phone.slice(0, -3) + 'XXX' 
+      : phone + 'XXX';
+
+    return {
+      ...log.toObject(),
+      maskedPhone: maskedPhone,        // This is what frontend will display
+      targetPhone: undefined           // Hide full phone from response
+    };
+  });
+
+  res.json(maskedLogs);
+});
+
 app.get('/me', auth, async (req, res) => {
   const user = await User.findById(req.user.id).select('-password');
   res.json(user);
 });
 
-app.get('/my-queries', auth, async (req, res) => {
-  const logs = await QueryLog.find({ userId: req.user.id }).sort({ queriedAt: -1 });
-  const maskedLogs = logs.map(log => ({
-    ...log.toObject(),
-    maskedPhone: log.targetPhone ? log.targetPhone.slice(0, -3) + 'XXX' : 'Unknown',
-  }));
 
-  res.json(maskedLogs);
-});
+
+
 
 app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
