@@ -355,7 +355,12 @@ app.get('/me', auth, async (req, res) => {
 
 app.get('/my-queries', auth, async (req, res) => {
   const logs = await QueryLog.find({ userId: req.user.id }).sort({ queriedAt: -1 });
-  res.json(logs);
+  const maskedLogs = logs.map(log => ({
+    ...log.toObject(),
+    maskedPhone: log.targetPhone ? log.targetPhone.slice(0, -3) + 'XXX' : 'Unknown',
+  }));
+
+  res.json(maskedLogs);
 });
 
 app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
