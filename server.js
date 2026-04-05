@@ -1,14 +1,14 @@
 require('dotenv').config();
 const express = require('express');
-const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
 const axios = require('axios');
+const { Pool } = require('pg');   // ← New for Supabase Postgres
 
 const app = express();
-app.set('trust proxy', 1);   // ← trust proxy layer 1 so rate limiting doesnt bother me
+app.set('trust proxy', 1);
 
 const PORT = process.env.PORT || 3000;
 
@@ -32,7 +32,7 @@ app.use(express.json());
 app.use(express.static(__dirname));
 
 const authLimiter = rateLimit({
-  windowMs: 60 * 1000,    
+  windowMs: 60 * 1000,
   max: 5,
   message: { error: 'Too many attempts. Please wait 60 seconds before trying again.' },
   standardHeaders: true,
@@ -40,14 +40,25 @@ const authLimiter = rateLimit({
 });
 
 const stkLimiter = rateLimit({
-  windowMs: 60 * 1000,     
-  max: 5,                 
+  windowMs: 60 * 1000,
+  max: 5,
   message: { error: 'Too many payment requests. Please wait 60 seconds before trying again.' },
   standardHeaders: true,
   legacyHeaders: false,
 });
 
+// ====================== Supabase Postgres Connection Pool ======================
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }   // Required for Supabase
+});
 
+// Test connection on startup
+pool.query('SELECT NOW()')
+  .then(() => console.log('✅ Supabase Postgres connected successfully'))
+  .catch(err => console.error('❌ Supabase connection error:', err.message));
+
+// ====================== Helper Functions (Unchanged) ======================
 function sanitizePhone(phone) {
   if (!phone) return '';
   return phone.toString().replace(/[^0-9+]/g, '').trim();
@@ -68,53 +79,6 @@ function sanitizeText(text) {
   return text.toString().trim().replace(/[<>"/\\]/g, '');
 }
 
-
-const userSchema = new mongoose.Schema({
-  fullName: String,
-  location: String,
-  phone: { type: String, unique: true, required: true },
-  email: { type: String, unique: true, sparse: true },
-  password: { type: String, required: true },
-  successQueries: { type: Number, default: 0 },
-  failureQueries: { type: Number, default: 0 },
-  createdAt: { type: Date, default: Date.now }
-});
-
-const fingerprintSchema = new mongoose.Schema({
-  phone: { type: String, unique: true, required: true },
-  fp: { type: String, required: true },
-  used: { type: Boolean, default: false },
-  createdAt: { type: Date, default: Date.now }
-});
-
-const paymentSchema = new mongoose.Schema({
-  userId: mongoose.Schema.Types.ObjectId,
-  targetPhone: String,
-  reference: { type: String, unique: true },
-  status: { type: String, default: 'pending' },
-  amount: Number,
-  msisdn: String,
-  initiatedAt: { type: Date, default: Date.now }
-});
-
-const queryLogSchema = new mongoose.Schema({
-  userId: mongoose.Schema.Types.ObjectId,
-  targetPhone: String,
-  formattedFP: String,
-  status: String,
-  receipt: String,
-  queriedAt: { type: Date, default: Date.now }
-});
-
-const User = mongoose.model('User', userSchema);
-const Fingerprint = mongoose.model('Fingerprint', fingerprintSchema);
-const Payment = mongoose.model('Payment', paymentSchema);
-const QueryLog = mongoose.model('QueryLog', queryLogSchema);
-
-mongoose.connect(process.env.MONGO_URI)
-  .then(() => console.log(' MongoDB connected'))
-  .catch(err => console.error('MongoDB error:', err));
-
 function decryptFingerprint(encryptedBase64) {
   const key = "TRAVIS-GUARDIAN-SECURE-2026-x7k9";
   let decoded;
@@ -128,13 +92,12 @@ function decryptFingerprint(encryptedBase64) {
   return fp;
 }
 
+// ====================== Auth Middleware (Unchanged) ======================
 const auth = (req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1];
-
   if (!token) {
     return res.status(401).json({ error: 'No token provided' });
   }
-
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     req.user = decoded;
@@ -145,9 +108,10 @@ const auth = (req, res, next) => {
   }
 };
 
+// ====================== Routes ======================
+
 app.post('/register', authLimiter, async (req, res) => {
   const { fullName, location, phone, email, password } = req.body;
-
   const sanitizedFullName = sanitizeText(fullName);
   const sanitizedLocation = sanitizeText(location);
   const sanitizedPhone = sanitizePhone(phone);
@@ -156,30 +120,30 @@ app.post('/register', authLimiter, async (req, res) => {
   if (!sanitizedFullName || !sanitizedLocation || !sanitizedPhone || !sanitizedPassword) {
     return res.status(400).json({ error: 'Missing or invalid fields' });
   }
-
   if (!isValidKenyanPhone(sanitizedPhone)) {
     return res.status(400).json({ error: 'Invalid Kenyan phone number' });
   }
-
   if (sanitizedPassword.length < 6) {
     return res.status(400).json({ error: 'Password must be at least 6 characters' });
   }
 
   try {
-    const existing = await User.findOne({ phone: sanitizedPhone });
-    if (existing) return res.status(400).json({ error: 'Phone already registered' });
+    const existing = await pool.query('SELECT id FROM users WHERE phone = $1', [sanitizedPhone]);
+    if (existing.rows.length > 0) {
+      return res.status(400).json({ error: 'Phone already registered' });
+    }
 
     const hashed = await bcrypt.hash(sanitizedPassword, 10);
-    await User.create({
-      fullName: sanitizedFullName,
-      location: sanitizedLocation,
-      phone: sanitizedPhone,
-      email: email ? email.trim() : undefined,
-      password: hashed
-    });
+
+    await pool.query(
+      `INSERT INTO users (full_name, location, phone, email, password)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [sanitizedFullName, sanitizedLocation, sanitizedPhone, email ? email.trim() : null, hashed]
+    );
 
     res.json({ message: 'Registered successfully' });
   } catch (e) {
+    console.error(e);
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -187,36 +151,33 @@ app.post('/register', authLimiter, async (req, res) => {
 app.post('/login', authLimiter, async (req, res) => {
   try {
     let { phone, password } = req.body;
-
     phone = sanitizePhone(phone);
     password = password ? password.toString().trim() : '';
 
     if (!phone || !password) {
       return res.status(400).json({ error: 'Phone and password are required' });
     }
-
     if (!isValidKenyanPhone(phone)) {
       return res.status(400).json({ error: 'Invalid phone number' });
     }
-
     if (password.length < 6) {
       return res.status(400).json({ error: 'Invalid credentials' });
     }
 
-    const user = await User.findOne({ phone });
+    const result = await pool.query('SELECT * FROM users WHERE phone = $1', [phone]);
+    const user = result.rows[0];
 
     if (!user) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
     const isMatch = await bcrypt.compare(password, user.password);
-
     if (!isMatch) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
     const token = jwt.sign(
-      { id: user._id, phone: user.phone },
+      { id: user.id, phone: user.phone },
       process.env.JWT_SECRET,
       { expiresIn: '7d' }
     );
@@ -224,13 +185,12 @@ app.post('/login', authLimiter, async (req, res) => {
     return res.json({
       token,
       user: {
-        fullName: user.fullName,
+        fullName: user.full_name,
         phone: user.phone,
-        successQueries: user.successQueries || 0,
-        failureQueries: user.failureQueries || 0
+        successQueries: user.success_queries || 0,
+        failureQueries: user.failure_queries || 0
       }
     });
-
   } catch (err) {
     console.error("LOGIN ROUTE CRASHED:", err);
     return res.status(500).json({ error: 'Server error during login' });
@@ -239,7 +199,6 @@ app.post('/login', authLimiter, async (req, res) => {
 
 app.post('/initiate-stk', auth, stkLimiter, async (req, res) => {
   let { targetPhone, payerMsisdn } = req.body;
-
   if (!targetPhone || !payerMsisdn) {
     return res.status(400).json({ error: 'Both phone numbers are required' });
   }
@@ -247,21 +206,20 @@ app.post('/initiate-stk', auth, stkLimiter, async (req, res) => {
   const cleanedTarget = cleanPhone(targetPhone);
   const cleanedPayer = cleanPhone(payerMsisdn);
 
-  if (!cleanedTarget || !cleanedPayer || !isValidKenyanPhone(targetPhone) || !isValidKenyanPhone(payerMsisdn)) {
+  if (!cleanedTarget || !cleanedPayer || 
+      !isValidKenyanPhone(targetPhone) || 
+      !isValidKenyanPhone(payerMsisdn)) {
     return res.status(400).json({ error: 'Invalid phone numbers' });
   }
 
   const reference = `TRV-${Date.now()}`;
 
   try {
-    await Payment.create({
-      userId: req.user.id,
-      targetPhone: cleanedTarget,    
-      reference,
-      amount: 1,
-      msisdn: cleanedPayer.replace(/^0/, '254'),
-      status: 'pending'
-    });
+    await pool.query(
+      `INSERT INTO payments (user_id, target_phone, reference, amount, msisdn, status)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [req.user.id, cleanedTarget, reference, 1, cleanedPayer.replace(/^0/, '254'), 'pending']
+    );
 
     console.log(`Payment created for target phone: ${cleanedTarget}`);
 
@@ -281,7 +239,6 @@ app.post('/initiate-stk', auth, stkLimiter, async (req, res) => {
       success: true,
       message: "STK Push sent! Check your phone and complete the payment."
     });
-
   } catch (error) {
     console.error("STK Error:", error.response ? error.response.data : error.message);
     res.status(500).json({ error: "Failed to send STK Push" });
@@ -295,88 +252,124 @@ app.post('/store-fingerprint', async (req, res) => {
   const fp = decryptFingerprint(encrypted);
   if (!fp) return res.status(400).json({ error: 'Invalid fingerprint' });
 
-  await Fingerprint.findOneAndUpdate(
-    { phone },
-    { phone, fp, used: false, createdAt: new Date() },
-    { upsert: true, new: true }
-  );
+  try {
+    await pool.query(
+      `INSERT INTO fingerprints (phone, fp, used, created_at)
+       VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (phone) DO UPDATE 
+       SET fp = $2, used = $3, created_at = NOW()`,
+      [phone, fp, false]
+    );
 
-  res.json({ status: 'stored', message: 'Device fingerprint linked successfully' });
+    res.json({ status: 'stored', message: 'Device fingerprint linked successfully' });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Server error' });
+  }
 });
 
 app.post('/pesaflux-webhook', async (req, res) => {
   const data = req.body;
   console.log("=== WEBHOOK RECEIVED ===", JSON.stringify(data, null, 2));
-
   res.status(200).send('OK');
 
   if (data.ResponseCode === 0) {
     const reference = data.TransactionReference || data.reference;
 
-    const payment = await Payment.findOne({ reference, status: 'pending' });
+    try {
+      const paymentRes = await pool.query(
+        `SELECT * FROM payments WHERE reference = $1 AND status = 'pending'`,
+        [reference]
+      );
+      const payment = paymentRes.rows[0];
 
-    if (!payment) {
-      console.log("No pending payment found for reference:", reference);
-      return;
+      if (!payment) {
+        console.log("No pending payment found for reference:", reference);
+        return;
+      }
+
+      const cleanedTarget = cleanPhone(payment.target_phone);
+      const fpRes = await pool.query('SELECT * FROM fingerprints WHERE phone = $1', [cleanedTarget]);
+      const fpDoc = fpRes.rows[0];
+
+      if (!fpDoc || fpDoc.used) {
+        console.log("Fingerprint not found or already used for phone:", cleanedTarget);
+        return;
+      }
+
+      const extracted = fpDoc.fp.substring(3, 11);
+      const formattedFP = `TRV-KE-${extracted}-5634`;
+
+      await pool.query(
+        `INSERT INTO query_logs (user_id, target_phone, formatted_fp, status, receipt, queried_at)
+         VALUES ($1, $2, $3, $4, $5, NOW())`,
+        [payment.user_id, payment.target_phone, formattedFP, 'success', data.TransactionReceipt]
+      );
+
+      await pool.query(
+        `UPDATE users SET success_queries = success_queries + 1 WHERE id = $1`,
+        [payment.user_id]
+      );
+
+      await pool.query('UPDATE fingerprints SET used = true WHERE phone = $1', [cleanedTarget]);
+      await pool.query("UPDATE payments SET status = 'success' WHERE reference = $1", [reference]);
+
+    } catch (e) {
+      console.error("Webhook processing error:", e);
     }
-
-    const cleanedTarget = cleanPhone(payment.targetPhone);
-
-    const fpDoc = await Fingerprint.findOne({ phone: cleanedTarget });
-
-    if (!fpDoc || fpDoc.used) {
-      console.log("Fingerprint not found for cleaned phone:", cleanedTarget);
-      return;
-    }
-
-    const extracted = fpDoc.fp.substring(3, 11);
-    const formattedFP = `TRV-KE-${extracted}-5634`;
-
-    await QueryLog.create({
-      userId: payment.userId,
-      targetPhone: payment.targetPhone,
-      formattedFP: formattedFP,
-      status: 'success',
-      receipt: data.TransactionReceipt
-    });
-
-    await User.findByIdAndUpdate(payment.userId, { $inc: { successQueries: 1 } });
-
-    fpDoc.used = true;
-    await fpDoc.save();
-
-    payment.status = 'success';
-    await payment.save();
   }
 });
 
 app.get('/my-queries', auth, async (req, res) => {
-  const logs = await QueryLog.find({ userId: req.user.id }).sort({ queriedAt: -1 });
+  try {
+    const logsRes = await pool.query(
+      `SELECT * FROM query_logs 
+       WHERE user_id = $1 
+       ORDER BY queried_at DESC`,
+      [req.user.id]
+    );
 
-  // Mask the target phone (last 3 digits hidden)
-  const maskedLogs = logs.map(log => {
-    const phone = log.targetPhone || '';
-    const maskedPhone = phone.length > 3 
-      ? phone.slice(0, -3) + 'XXX' 
-      : phone + 'XXX';
+    const logs = logsRes.rows;
 
-    return {
-      ...log.toObject(),
-      maskedPhone: maskedPhone,        // This is what frontend will display
-      targetPhone: undefined           // Hide full phone from response
-    };
-  });
+    const maskedLogs = logs.map(log => {
+      const phone = log.target_phone || '';
+      const maskedPhone = phone.length > 3
+        ? phone.slice(0, -3) + 'XXX'
+        : phone + 'XXX';
 
-  res.json(maskedLogs);
+      return {
+        ...log,
+        maskedPhone: maskedPhone,
+        target_phone: undefined   // hide full phone
+      };
+    });
+
+    res.json(maskedLogs);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Server error' });
+  }
 });
 
 app.get('/me', auth, async (req, res) => {
-  const user = await User.findById(req.user.id).select('-password');
-  res.json(user);
+  try {
+    const userRes = await pool.query(
+      `SELECT id, full_name, location, phone, email, success_queries, failure_queries, created_at 
+       FROM users WHERE id = $1`,
+      [req.user.id]
+    );
+
+    const user = userRes.rows[0];
+    if (user) {
+      user.fullName = user.full_name;   // match old frontend expectation
+      delete user.full_name;
+    }
+
+    res.json(user || {});
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Server error' });
+  }
 });
-
-
-
-
 
 app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
