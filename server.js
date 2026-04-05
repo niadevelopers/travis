@@ -329,7 +329,12 @@ app.post('/pesaflux-webhook', async (req, res) => {
 app.get('/my-queries', auth, async (req, res) => {
   try {
     const logsRes = await pool.query(
-      `SELECT * FROM query_logs 
+      `SELECT 
+         target_phone,
+         formatted_fp AS "formattedFP",
+         receipt,
+         queried_at AS "queriedAt"
+       FROM query_logs 
        WHERE user_id = $1 
        ORDER BY queried_at DESC`,
       [req.user.id]
@@ -344,34 +349,37 @@ app.get('/my-queries', auth, async (req, res) => {
         : phone + 'XXX';
 
       return {
-        ...log,
+        formattedFP: log.formattedFP || '',
+        receipt: log.receipt || '-',
+        queriedAt: log.queriedAt,
         maskedPhone: maskedPhone,
-        target_phone: undefined   // hide full phone
+        targetPhone: undefined   // frontend hides this
       };
     });
 
     res.json(maskedLogs);
   } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: 'Server error' });
+    console.error("My Queries Error:", e);
+    res.status(500).json({ error: 'Failed to load queries' });
   }
 });
+
+
 
 app.get('/me', auth, async (req, res) => {
   try {
     const userRes = await pool.query(
-      `SELECT id, full_name, location, phone, email, success_queries, failure_queries, created_at 
-       FROM users WHERE id = $1`,
+      `SELECT 
+         full_name AS "fullName",
+         phone,
+         success_queries AS "successQueries",
+         failure_queries AS "failureQueries"
+       FROM users 
+       WHERE id = $1`,
       [req.user.id]
     );
 
-    const user = userRes.rows[0];
-    if (user) {
-      user.fullName = user.full_name;   // match old frontend expectation
-      delete user.full_name;
-    }
-
-    res.json(user || {});
+    res.json(userRes.rows[0] || {});
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'Server error' });
