@@ -48,14 +48,15 @@ const stkLimiter = rateLimit({
 });
 
 // ====================== Supabase Postgres Connection Pool ======================
+// ====================== Supabase Postgres Connection Pool ======================
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: {
-    rejectUnauthorized: false
+    rejectUnauthorized: false   // ← This bypasses the strict certificate check
   },
   max: 10,
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 15000   // Increased timeout
+  connectionTimeoutMillis: 15000
 });
 
 // Test connection on startup
