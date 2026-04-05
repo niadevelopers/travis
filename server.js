@@ -232,7 +232,7 @@ app.post('/initiate-stk', auth, stkLimiter, async (req, res) => {
     const payload = {
       api_key: process.env.PESAFLUX_API_KEY,
       email: process.env.PESAFLUX_EMAIL,
-      amount: 1,
+      amount: 750,
       msisdn: cleanedPayer.replace(/^0/, '254'),
       reference: reference
     };
