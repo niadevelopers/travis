@@ -12,11 +12,12 @@ app.set('trust proxy', 1);
 const PORT = process.env.PORT || 3000;
 
 // ====================== CORS — allow all origins ======================
+// NOTE: cors() already handles OPTIONS preflight on its own.
+// Do NOT add app.options('*', ...) — Express 5 rejects '*' as a path.
 app.use(cors({
   origin: true,
   credentials: true
 }));
-app.options('*', cors({ origin: true, credentials: true }));
 
 app.use(express.json());
 app.use(express.static(__dirname));
@@ -76,7 +77,6 @@ function decryptFingerprint(encryptedBase64) {
   return fp;
 }
 
-// Normalize any Kenyan format → 2547XXXXXXXX / 2541XXXXXXXX
 function normalizeKenyanPhone(phone) {
   if (!phone) return '';
   let p = phone.toString().replace(/[\s\-\(\)]/g, '');
@@ -215,9 +215,6 @@ app.post('/store-fingerprint', async (req, res) => {
 });
 
 // ====================== Phone-specific fingerprint lookup ======================
-// Accepts any of: 0712345678 | 712345678 | +254712345678 | 254712345678
-// Looks in `fingerprints` table (and falls back to `query_logs` if not found),
-// returns the fingerprint formatted as TRV-KE-XXXXXXXX-5634.
 app.post('/lookup-fingerprint', async (req, res) => {
   const { phone } = req.body || {};
   if (!phone) return res.status(400).json({ error: 'Phone number is required' });
@@ -227,11 +224,10 @@ app.post('/lookup-fingerprint', async (req, res) => {
     return res.status(400).json({ error: 'Invalid Kenyan phone number' });
   }
 
-  const localForm = '0' + normalized.slice(3); // 0712345678
-  const plusForm  = '+' + normalized;          // +254712345678
+  const localForm = '0' + normalized.slice(3);
+  const plusForm  = '+' + normalized;
 
   try {
-    // 1️⃣ Try the fingerprints table first (raw stored format)
     const fpRes = await pool.query(
       `SELECT fp, used FROM fingerprints
        WHERE phone = ANY($1::text[])
@@ -251,7 +247,6 @@ app.post('/lookup-fingerprint', async (req, res) => {
       });
     }
 
-    // 2️⃣ Fallback: look in query_logs for a past query on this number
     const logRes = await pool.query(
       `SELECT formatted_fp FROM query_logs
        WHERE target_phone = ANY($1::text[])
@@ -333,7 +328,7 @@ app.get('/me', auth, async (req, res) => {
   }
 });
 
-// Simple health check so the root URL doesn't 404
+// Health check
 app.get('/', (req, res) => {
   res.json({ status: 'ok', service: 'travis-api', time: new Date().toISOString() });
 });
