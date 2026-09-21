@@ -4,28 +4,19 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
-const { Pool } = require('pg');   // ← New for Supabase Postgres
+const { Pool } = require('pg');
 
 const app = express();
 app.set('trust proxy', 1);
 
 const PORT = process.env.PORT || 3000;
 
-const allowedOrigins = [
-  'https://travis-three.vercel.app',
-  'http://127.0.0.1:3000'
-];
-
+// ====================== CORS — allow all origins ======================
 app.use(cors({
-  origin: function (origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
+  origin: true,
   credentials: true
 }));
+app.options('*', cors({ origin: true, credentials: true }));
 
 app.use(express.json());
 app.use(express.static(__dirname));
@@ -41,20 +32,17 @@ const authLimiter = rateLimit({
 // ====================== Supabase Postgres Connection Pool ======================
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: {
-    rejectUnauthorized: false   // ← This bypasses the strict certificate check
-  },
+  ssl: { rejectUnauthorized: false },
   max: 10,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 15000
 });
 
-// Test connection on startup
 pool.query('SELECT NOW()')
   .then(() => console.log('✅ Supabase Postgres connected successfully'))
   .catch(err => console.error('❌ Supabase connection error:', err.message));
 
-// ====================== Helper Functions (Unchanged) ======================
+// ====================== Helper Functions ======================
 function sanitizePhone(phone) {
   if (!phone) return '';
   return phone.toString().replace(/[^0-9+]/g, '').trim();
@@ -88,7 +76,17 @@ function decryptFingerprint(encryptedBase64) {
   return fp;
 }
 
-// ====================== Auth Middleware (Unchanged) ======================
+// Normalize any Kenyan format → 2547XXXXXXXX / 2541XXXXXXXX
+function normalizeKenyanPhone(phone) {
+  if (!phone) return '';
+  let p = phone.toString().replace(/[\s\-\(\)]/g, '');
+  if (p.startsWith('+')) p = p.slice(1);
+  if (p.startsWith('0')) p = '254' + p.slice(1);
+  if (p.startsWith('7') || p.startsWith('1')) p = '254' + p;
+  return p;
+}
+
+// ====================== Auth Middleware ======================
 const auth = (req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) {
@@ -216,6 +214,67 @@ app.post('/store-fingerprint', async (req, res) => {
   }
 });
 
+// ====================== Phone-specific fingerprint lookup ======================
+// Accepts any of: 0712345678 | 712345678 | +254712345678 | 254712345678
+// Looks in `fingerprints` table (and falls back to `query_logs` if not found),
+// returns the fingerprint formatted as TRV-KE-XXXXXXXX-5634.
+app.post('/lookup-fingerprint', async (req, res) => {
+  const { phone } = req.body || {};
+  if (!phone) return res.status(400).json({ error: 'Phone number is required' });
+
+  const normalized = normalizeKenyanPhone(phone);
+  if (!/^254(7|1)\d{8}$/.test(normalized)) {
+    return res.status(400).json({ error: 'Invalid Kenyan phone number' });
+  }
+
+  const localForm = '0' + normalized.slice(3); // 0712345678
+  const plusForm  = '+' + normalized;          // +254712345678
+
+  try {
+    // 1️⃣ Try the fingerprints table first (raw stored format)
+    const fpRes = await pool.query(
+      `SELECT fp, used FROM fingerprints
+       WHERE phone = ANY($1::text[])
+       LIMIT 1`,
+      [[normalized, localForm, plusForm]]
+    );
+
+    if (fpRes.rows[0] && fpRes.rows[0].fp) {
+      const storedFp = fpRes.rows[0].fp;
+      const extracted = storedFp.substring(3, 11);
+      const formattedFP = `TRV-KE-${extracted}-5634`;
+      return res.json({
+        phone: normalized,
+        fingerprint: formattedFP,
+        source: 'fingerprints',
+        used: !!fpRes.rows[0].used
+      });
+    }
+
+    // 2️⃣ Fallback: look in query_logs for a past query on this number
+    const logRes = await pool.query(
+      `SELECT formatted_fp FROM query_logs
+       WHERE target_phone = ANY($1::text[])
+       ORDER BY queried_at DESC
+       LIMIT 1`,
+      [[normalized, localForm, plusForm]]
+    );
+
+    if (logRes.rows[0] && logRes.rows[0].formatted_fp) {
+      return res.json({
+        phone: normalized,
+        fingerprint: logRes.rows[0].formatted_fp,
+        source: 'query_logs'
+      });
+    }
+
+    return res.status(404).json({ error: 'No fingerprint found for that number' });
+  } catch (e) {
+    console.error('Lookup error:', e);
+    return res.status(500).json({ error: 'Server error during lookup' });
+  }
+});
+
 app.get('/my-queries', auth, async (req, res) => {
   try {
     const logsRes = await pool.query(
@@ -243,7 +302,7 @@ app.get('/my-queries', auth, async (req, res) => {
         receipt: log.receipt || '-',
         queriedAt: log.queriedAt,
         maskedPhone: maskedPhone,
-        targetPhone: undefined   // frontend hides this
+        targetPhone: undefined
       };
     });
 
@@ -272,6 +331,11 @@ app.get('/me', auth, async (req, res) => {
     console.error(e);
     res.status(500).json({ error: 'Server error' });
   }
+});
+
+// Simple health check so the root URL doesn't 404
+app.get('/', (req, res) => {
+  res.json({ status: 'ok', service: 'travis-api', time: new Date().toISOString() });
 });
 
 app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
