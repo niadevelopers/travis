@@ -4,7 +4,6 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
-const axios = require('axios');
 const { Pool } = require('pg');   // ← New for Supabase Postgres
 
 const app = express();
@@ -39,15 +38,6 @@ const authLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-const stkLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 5,
-  message: { error: 'Too many payment requests. Please wait 60 seconds before trying again.' },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-
-// ====================== Supabase Postgres Connection Pool ======================
 // ====================== Supabase Postgres Connection Pool ======================
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -203,54 +193,6 @@ app.post('/login', authLimiter, async (req, res) => {
   }
 });
 
-app.post('/initiate-stk', auth, stkLimiter, async (req, res) => {
-  let { targetPhone, payerMsisdn } = req.body;
-  if (!targetPhone || !payerMsisdn) {
-    return res.status(400).json({ error: 'Both phone numbers are required' });
-  }
-
-  const cleanedTarget = cleanPhone(targetPhone);
-  const cleanedPayer = cleanPhone(payerMsisdn);
-
-  if (!cleanedTarget || !cleanedPayer || 
-      !isValidKenyanPhone(targetPhone) || 
-      !isValidKenyanPhone(payerMsisdn)) {
-    return res.status(400).json({ error: 'Invalid phone numbers' });
-  }
-
-  const reference = `TRV-${Date.now()}`;
-
-  try {
-    await pool.query(
-      `INSERT INTO payments (user_id, target_phone, reference, amount, msisdn, status)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [req.user.id, cleanedTarget, reference, 1, cleanedPayer.replace(/^0/, '254'), 'pending']
-    );
-
-    console.log(`Payment created for target phone: ${cleanedTarget}`);
-
-    const payload = {
-      api_key: process.env.PESAFLUX_API_KEY,
-      email: process.env.PESAFLUX_EMAIL,
-      amount: 750,
-      msisdn: cleanedPayer.replace(/^0/, '254'),
-      reference: reference
-    };
-
-    await axios.post('https://api.pesaflux.co.ke/v1/initiatestk', payload, {
-      headers: { 'Content-Type': 'application/json' }
-    });
-
-    res.json({
-      success: true,
-      message: "STK Push sent! Check your phone and complete the payment."
-    });
-  } catch (error) {
-    console.error("STK Error:", error.response ? error.response.data : error.message);
-    res.status(500).json({ error: "Failed to send STK Push" });
-  }
-});
-
 app.post('/store-fingerprint', async (req, res) => {
   const { encrypted, phone } = req.body;
   if (!encrypted || !phone) return res.status(400).json({ error: 'Missing data' });
@@ -271,58 +213,6 @@ app.post('/store-fingerprint', async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'Server error' });
-  }
-});
-
-app.post('/pesaflux-webhook', async (req, res) => {
-  const data = req.body;
-  console.log("=== WEBHOOK RECEIVED ===", JSON.stringify(data, null, 2));
-  res.status(200).send('OK');
-
-  if (data.ResponseCode === 0) {
-    const reference = data.TransactionReference || data.reference;
-
-    try {
-      const paymentRes = await pool.query(
-        `SELECT * FROM payments WHERE reference = $1 AND status = 'pending'`,
-        [reference]
-      );
-      const payment = paymentRes.rows[0];
-
-      if (!payment) {
-        console.log("No pending payment found for reference:", reference);
-        return;
-      }
-
-      const cleanedTarget = cleanPhone(payment.target_phone);
-      const fpRes = await pool.query('SELECT * FROM fingerprints WHERE phone = $1', [cleanedTarget]);
-      const fpDoc = fpRes.rows[0];
-
-      if (!fpDoc || fpDoc.used) {
-        console.log("Fingerprint not found or already used for phone:", cleanedTarget);
-        return;
-      }
-
-      const extracted = fpDoc.fp.substring(3, 11);
-      const formattedFP = `TRV-KE-${extracted}-5634`;
-
-      await pool.query(
-        `INSERT INTO query_logs (user_id, target_phone, formatted_fp, status, receipt, queried_at)
-         VALUES ($1, $2, $3, $4, $5, NOW())`,
-        [payment.user_id, payment.target_phone, formattedFP, 'success', data.TransactionReceipt]
-      );
-
-      await pool.query(
-        `UPDATE users SET success_queries = success_queries + 1 WHERE id = $1`,
-        [payment.user_id]
-      );
-
-      await pool.query('UPDATE fingerprints SET used = true WHERE phone = $1', [cleanedTarget]);
-      await pool.query("UPDATE payments SET status = 'success' WHERE reference = $1", [reference]);
-
-    } catch (e) {
-      console.error("Webhook processing error:", e);
-    }
   }
 });
 
@@ -363,8 +253,6 @@ app.get('/my-queries', auth, async (req, res) => {
     res.status(500).json({ error: 'Failed to load queries' });
   }
 });
-
-
 
 app.get('/me', auth, async (req, res) => {
   try {
