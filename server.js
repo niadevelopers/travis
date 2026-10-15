@@ -5,6 +5,7 @@ const jwt = require('jsonwebtoken');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
 const { Pool } = require('pg');
+const webpush = require('web-push');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -12,8 +13,6 @@ app.set('trust proxy', 1);
 const PORT = process.env.PORT || 3000;
 
 // ====================== CORS — allow all origins ======================
-// NOTE: cors() already handles OPTIONS preflight on its own.
-// Do NOT add app.options('*', ...) — Express 5 rejects '*' as a path.
 app.use(cors({
   origin: true,
   credentials: true
@@ -30,6 +29,13 @@ const authLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+// ====================== Web Push (VAPID) ======================
+webpush.setVapidDetails(
+  process.env.VAPID_SUBJECT || 'mailto:you@example.com',
+  process.env.VAPID_PUBLIC_KEY,
+  process.env.VAPID_PRIVATE_KEY
+);
+
 // ====================== Supabase Postgres Connection Pool ======================
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -42,6 +48,18 @@ const pool = new Pool({
 pool.query('SELECT NOW()')
   .then(() => console.log('✅ Supabase Postgres connected successfully'))
   .catch(err => console.error('❌ Supabase connection error:', err.message));
+
+// Bootstrap push_subscriptions table
+pool.query(`
+  CREATE TABLE IF NOT EXISTS push_subscriptions (
+    id SERIAL PRIMARY KEY,
+    endpoint TEXT UNIQUE NOT NULL,
+    p256dh TEXT NOT NULL,
+    auth TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+  )
+`).then(() => console.log('✅ push_subscriptions table ready'))
+  .catch(err => console.error('❌ push_subscriptions setup error:', err.message));
 
 // ====================== Helper Functions ======================
 function sanitizePhone(phone) {
@@ -214,7 +232,6 @@ app.post('/store-fingerprint', async (req, res) => {
   }
 });
 
-// ====================== Phone-specific fingerprint lookup ======================
 app.post('/lookup-fingerprint', async (req, res) => {
   const { phone } = req.body || {};
   if (!phone) return res.status(400).json({ error: 'Phone number is required' });
@@ -325,6 +342,98 @@ app.get('/me', auth, async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ====================== Web Push: VAPID public key ======================
+app.get('/vapid-public-key', (req, res) => {
+  res.json({ key: process.env.VAPID_PUBLIC_KEY });
+});
+
+// ====================== Web Push: store subscription ======================
+app.post('/subscribe', async (req, res) => {
+  const sub = req.body;
+  if (!sub || !sub.endpoint || !sub.keys || !sub.keys.p256dh || !sub.keys.auth) {
+    return res.status(400).json({ error: 'Invalid subscription' });
+  }
+
+  try {
+    await pool.query(
+      `INSERT INTO push_subscriptions (endpoint, p256dh, auth)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (endpoint) DO UPDATE 
+       SET p256dh = $2, auth = $3`,
+      [sub.endpoint, sub.keys.p256dh, sub.keys.auth]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('Subscribe error:', e);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ====================== Web Push: cron trigger ======================
+app.post('/cron/send-reminders', async (req, res) => {
+  const secret = req.headers['x-cron-secret'];
+  if (!process.env.CRON_SECRET || secret !== process.env.CRON_SECRET) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  const titles = [
+    'Hey, quick check-in',
+    'Your ledger is waiting',
+    "Don't let today slip by",
+    'One small habit, big difference',
+    'Travis reminder'
+  ];
+
+  const bodies = [
+    "Have you recorded today's transactions? Travis needs them to keep your advice accurate — it takes under a minute.",
+    "A day without entries means Travis is working with yesterday's numbers. Tap to log what came in and went out today.",
+    "Accurate records are what make Travis's advice useful. Take a moment to log today's transactions.",
+    "Recording today's transactions keeps your financial picture sharp. It only takes a moment — tap to open Travis.",
+    "Today's numbers aren't in yet. The more current your records, the more accurate your advice. Tap to update your ledger."
+  ];
+
+  const idx = new Date().getDate() % titles.length;
+  const payload = JSON.stringify({
+    title: titles[idx],
+    body:  bodies[idx]
+  });
+
+  let sent = 0;
+  let removed = 0;
+  let failed = 0;
+
+  try {
+    const result = await pool.query(
+      'SELECT id, endpoint, p256dh, auth FROM push_subscriptions'
+    );
+
+    for (const row of result.rows) {
+      const subscription = {
+        endpoint: row.endpoint,
+        keys: { p256dh: row.p256dh, auth: row.auth }
+      };
+
+      try {
+        await webpush.sendNotification(subscription, payload);
+        sent++;
+      } catch (err) {
+        if (err.statusCode === 404 || err.statusCode === 410) {
+          await pool.query('DELETE FROM push_subscriptions WHERE id = $1', [row.id]);
+          removed++;
+        } else {
+          failed++;
+          console.error('Push send failed:', err.statusCode, err.message);
+        }
+      }
+    }
+
+    res.json({ ok: true, sent, removed, failed, total: result.rows.length });
+  } catch (e) {
+    console.error('Cron send error:', e);
+    res.status(500).json({ error: 'Cron send failed' });
   }
 });
 
