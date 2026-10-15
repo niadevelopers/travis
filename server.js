@@ -31,7 +31,7 @@ const authLimiter = rateLimit({
 
 // ====================== Web Push (VAPID) ======================
 webpush.setVapidDetails(
-  process.env.VAPID_SUBJECT || 'mailto:you@example.com',
+  process.env.VAPID_SUBJECT || 'mailto:jobisaacmaina22@gmail.com',
   process.env.VAPID_PUBLIC_KEY,
   process.env.VAPID_PRIVATE_KEY
 );
