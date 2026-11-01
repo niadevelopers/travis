@@ -6,32 +6,6 @@ const cors = require('cors');
 const rateLimit = require('express-rate-limit');
 const { Pool } = require('pg');
 const webpush = require('web-push');
-
-const app = express();
-app.set('trust proxy', 1);
-
-const PORT = process.env.PORT || 3000;
-
-// ====================== CORS — allow all origins ======================
-app.use(cors({
-  origin: true,
-  credentials: true
-}));
-
-app.use(express.json());
-app.use(express.static(__dirname));
-
-const authLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 5,
-  message: { error: 'Too many attempts.require('dotenv').config();
-const express = require('express');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
-const cors = require('cors');
-const rateLimit = require('express-rate-limit');
-const { Pool } = require('pg');
-const webpush = require('web-push');
 const crypto = require('crypto');
 
 const app = express();
@@ -72,7 +46,7 @@ webpush.setVapidDetails(
 );
 
 // ====================== Device Signing Secret ======================
-// MUST be set in .env. If missing, refuse to start the device endpoints.
+// MUST be set in .env. If missing, refuse to start.
 const DEVICE_SIGNING_SECRET = process.env.DEVICE_SIGNING_SECRET;
 if (!DEVICE_SIGNING_SECRET || DEVICE_SIGNING_SECRET.length < 32) {
   console.error('❌ FATAL: DEVICE_SIGNING_SECRET missing or too short (need >=32 chars).');
@@ -81,6 +55,13 @@ if (!DEVICE_SIGNING_SECRET || DEVICE_SIGNING_SECRET.length < 32) {
 }
 
 const DEVICE_TOKEN_TTL_DAYS = 365; // how long a device stays registered
+
+// ====================== Activation mode (scaling provision) ======================
+// 'free' : every registered device is active immediately (CURRENT BEHAVIOUR).
+// 'paid' : new devices start as 'pending' and get no activation code until
+//          grantActivation() is called (from the PesaFlux/Daraja callback, ResultCode 0).
+const ACTIVATION_MODE = (process.env.ACTIVATION_MODE || 'free').toLowerCase() === 'paid' ? 'paid' : 'free';
+console.log(`ℹ️  Activation mode: ${ACTIVATION_MODE}`);
 
 // ====================== Supabase Postgres Connection Pool ======================
 const pool = new Pool({
@@ -118,7 +99,7 @@ pool.query('SELECT NOW()')
       )
     `);
 
-    // New: server-issued device records
+    // Server-issued device records
     await pool.query(`
       CREATE TABLE IF NOT EXISTS devices (
         device_id      CHAR(32) PRIMARY KEY,
@@ -134,7 +115,12 @@ pool.query('SELECT NOW()')
     `);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_devices_phone ON devices(phone)`);
 
-    // New: audit log for every verify attempt (tracker)
+    // Provision for paid activation (safe on existing tables)
+    await pool.query(`ALTER TABLE devices ADD COLUMN IF NOT EXISTS activation_status TEXT NOT NULL DEFAULT 'active'`);
+    await pool.query(`ALTER TABLE devices ADD COLUMN IF NOT EXISTS activated_at TIMESTAMPTZ`);
+    await pool.query(`ALTER TABLE devices ADD COLUMN IF NOT EXISTS activation_ref TEXT`);
+
+    // Audit log for every register / verify attempt
     await pool.query(`
       CREATE TABLE IF NOT EXISTS device_events (
         id          BIGSERIAL PRIMARY KEY,
@@ -154,6 +140,17 @@ pool.query('SELECT NOW()')
     console.log('✅ tables ready (push_subscriptions, fingerprints, devices, device_events)');
   } catch (err) {
     console.error('❌ table bootstrap error:', err.message);
+  }
+
+  // One live device per phone, enforced by the database (closes the register race).
+  // Separate try so a pre-existing duplicate can't break the rest of the bootstrap.
+  try {
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS uniq_active_device_phone
+      ON devices(phone) WHERE revoked_at IS NULL
+    `);
+  } catch (err) {
+    console.error('⚠️ could not create uniq_active_device_phone (duplicate live devices for one phone exist?):', err.message);
   }
 })();
 
@@ -182,10 +179,28 @@ function normalizeKenyanPhone(phone) {
   return p;
 }
 
+// device_id is 32 UPPERCASE hex chars. Uppercase on purpose: the client (and any
+// other client module) derives the code with fingerprint.substring(3, 11) and the
+// activation input is upper-cased before comparing, so the code must be uppercase.
+const DEVICE_ID_RE = /^[A-F0-9]{32}$/;
+
 function deriveActivationCode(deviceId) {
   // MUST match client: TRV-KE-<deviceId[3..11]>-5634
-  // deviceId is 32-char hex, slice(3,11) = 8 chars.
-  return `TRV-KE-${deviceId.substring(3, 11)}-5634`;
+  return `TRV-KE-${String(deviceId).substring(3, 11).toUpperCase()}-5634`;
+}
+
+// ---- Future payment hook -------------------------------------------------
+// Call this from the PesaFlux / Daraja callback when ResultCode === 0.
+// In 'free' mode devices are already active, so nothing calls this yet.
+async function grantActivation(deviceId, reference) {
+  const r = await pool.query(
+    `UPDATE devices
+        SET activation_status = 'active', activated_at = NOW(), activation_ref = $2
+      WHERE device_id = $1 AND revoked_at IS NULL
+      RETURNING device_id`,
+    [deviceId, reference || null]
+  );
+  return r.rowCount > 0;
 }
 
 // ====================== Auth Middleware ======================
@@ -278,8 +293,9 @@ app.post('/login', authLimiter, async (req, res) => {
   }
 });
 
-// ====================== NEW: /register-device ======================
-// Generates device_id + signed token + activation code. Called ONCE, at install.
+// ====================== /register-device ======================
+// Called ONCE per install (from the phone modal). Issues device_id + signed token.
+// The client stores device_id as its fingerprint and derives the activation code from it.
 app.post('/register-device', deviceLimiter, async (req, res) => {
   const { phone } = req.body || {};
   const cleanPhone = sanitizePhone(phone);
@@ -290,75 +306,110 @@ app.post('/register-device', deviceLimiter, async (req, res) => {
     return res.status(400).json({ error: 'Valid Kenyan phone number required' });
   }
 
+  // Always store/compare ONE canonical format (254XXXXXXXXX) so 0712…, +254712… and
+  // 254712… are the same phone and can't be used to get several devices.
+  const phoneKey = normalizeKenyanPhone(cleanPhone);
+
   try {
-    // If this phone already has an active device, refuse — force /verify-device.
+    // Housekeeping: a device past its expiry no longer blocks the phone.
+    await pool.query(
+      `UPDATE devices SET revoked_at = NOW()
+       WHERE phone = $1 AND revoked_at IS NULL AND expires_at <= NOW()`,
+      [phoneKey]
+    );
+
     const existing = await pool.query(
-      `SELECT device_id, expires_at, revoked_at FROM devices
+      `SELECT device_id FROM devices
        WHERE phone = $1 AND revoked_at IS NULL AND expires_at > NOW()
        ORDER BY issued_at DESC LIMIT 1`,
-      [cleanPhone]
+      [phoneKey]
     );
     if (existing.rows[0]) {
+      await pool.query(
+        `INSERT INTO device_events (device_id, phone, event_type, success, reason, ip, ua)
+         VALUES ($1, $2, 'register', FALSE, 'phone_already_linked', $3, $4)`,
+        [existing.rows[0].device_id, phoneKey, ip, ua]
+      ).catch(() => {});
       return res.status(409).json({
-        error: 'This phone is already linked to a device. Use /verify-device or contact support.',
+        error: 'This phone number is already linked to a device. Restore your backup on that device, or contact support to move it.',
         device_id_masked: existing.rows[0].device_id.substring(0, 6) + '…'
       });
     }
 
-    // Generate cryptographically random device_id (32 hex chars).
-    const deviceId = crypto.randomBytes(16).toString('hex');
+    // 32 uppercase hex chars, cryptographically random.
+    const deviceId = crypto.randomBytes(16).toString('hex').toUpperCase();
 
-    // Sign a JWT binding {device_id, phone}.
     const jti = crypto.randomBytes(16).toString('hex');
     const expiresAt = new Date(Date.now() + DEVICE_TOKEN_TTL_DAYS * 86400 * 1000);
     const token = jwt.sign(
-      { sub: deviceId, phone: cleanPhone, jti, type: 'device' },
+      { sub: deviceId, phone: phoneKey, jti, type: 'device' },
       DEVICE_SIGNING_SECRET,
       { expiresIn: `${DEVICE_TOKEN_TTL_DAYS}d` }
     );
 
-    // Commit.
-    await pool.query(
-      `INSERT INTO devices (device_id, phone, token_jti, issued_at, expires_at, last_seen_at, last_ip, last_ua)
-       VALUES ($1, $2, $3, NOW(), $4, NOW(), $5, $6)`,
-      [deviceId, cleanPhone, jti, expiresAt, ip, ua]
-    );
+    const activationStatus = ACTIVATION_MODE === 'paid' ? 'pending' : 'active';
 
-    const activationCode = deriveActivationCode(deviceId);
+    try {
+      await pool.query(
+        `INSERT INTO devices
+           (device_id, phone, token_jti, issued_at, expires_at, last_seen_at, last_ip, last_ua,
+            activation_status, activated_at)
+         VALUES ($1, $2, $3, NOW(), $4, NOW(), $5, $6, $7,
+                 CASE WHEN $7 = 'active' THEN NOW() ELSE NULL END)`,
+        [deviceId, phoneKey, jti, expiresAt, ip, ua, activationStatus]
+      );
+    } catch (insErr) {
+      // Two simultaneous registrations for one phone: the unique index lets only one win.
+      if (insErr.code === '23505') {
+        return res.status(409).json({
+          error: 'This phone number is already linked to a device. Restore your backup on that device, or contact support to move it.'
+        });
+      }
+      throw insErr;
+    }
 
-    // Legacy compatibility: keep the old fingerprints table populated.
-    await pool.query(
-      `INSERT INTO fingerprints (phone, fp, used, created_at)
-       VALUES ($1, $2, TRUE, NOW())
-       ON CONFLICT (phone) DO UPDATE SET fp = $2, used = TRUE, created_at = NOW()`,
-      [cleanPhone, deviceId]
-    );
+    // Non-fatal extras: a failure here must NOT leave the user with a registered-but-unusable device.
+    try {
+      await pool.query(
+        `INSERT INTO fingerprints (phone, fp, used, created_at)
+         VALUES ($1, $2, TRUE, NOW())
+         ON CONFLICT (phone) DO UPDATE SET fp = $2, used = TRUE, created_at = NOW()`,
+        [phoneKey, deviceId]
+      );
+      await pool.query(
+        `INSERT INTO device_events (device_id, phone, event_type, success, ip, ua)
+         VALUES ($1, $2, 'register', TRUE, $3, $4)`,
+        [deviceId, phoneKey, ip, ua]
+      );
+    } catch (extraErr) {
+      console.error('register-device (non-fatal) extras failed:', extraErr.message);
+    }
 
-    await pool.query(
-      `INSERT INTO device_events (device_id, phone, event_type, success, ip, ua)
-       VALUES ($1, $2, 'register', TRUE, $3, $4)`,
-      [deviceId, cleanPhone, ip, ua]
-    );
-
-    return res.json({
+    const body = {
       device_id: deviceId,
       token,
-      activationCode,
+      activation_status: activationStatus,
       expires_at: expiresAt.toISOString()
-    });
+    };
+    // The code is only revealed once the device is active (immediately in 'free' mode).
+    if (activationStatus === 'active') body.activationCode = deriveActivationCode(deviceId);
+
+    return res.json(body);
   } catch (e) {
     console.error('register-device error:', e);
     await pool.query(
       `INSERT INTO device_events (phone, event_type, success, reason, ip, ua)
        VALUES ($1, 'register', FALSE, $2, $3, $4)`,
-      [cleanPhone, e.message.substring(0, 200), ip, ua]
+      [phoneKey, String(e.message).substring(0, 200), ip, ua]
     ).catch(() => {});
     return res.status(500).json({ error: 'Server error during device registration' });
   }
 });
 
-// ====================== NEW: /verify-device ======================
-// Called on every online boot. Detects forged / unknown / revoked devices.
+// ====================== /verify-device ======================
+// Called by the client on activation and on every online boot.
+// Client rule: ONLY a response with valid:false and HTTP 401/403/404 sends the user
+// back to the activation window. Timeouts / 429 / 5xx never do.
 app.post('/verify-device', deviceLimiter, async (req, res) => {
   const { fp, token } = req.body || {};
   const ip = req.ip;
@@ -368,7 +419,10 @@ app.post('/verify-device', deviceLimiter, async (req, res) => {
     return res.status(400).json({ valid: false, reason: 'missing_fields' });
   }
 
-  const event = (success, reason, deviceId = fp, phone = null) =>
+  // Only well-formed ids are logged / queried (fp is client-controlled input).
+  const fpOk = typeof fp === 'string' && DEVICE_ID_RE.test(fp);
+
+  const event = (success, reason, deviceId = fpOk ? fp : null, phone = null) =>
     pool.query(
       `INSERT INTO device_events (device_id, phone, event_type, success, reason, ip, ua)
        VALUES ($1, $2, 'verify', $3, $4, $5, $6)`,
@@ -376,6 +430,11 @@ app.post('/verify-device', deviceLimiter, async (req, res) => {
     ).catch(() => {});
 
   try {
+    if (!fpOk) {
+      await event(false, 'malformed_fp');
+      return res.status(401).json({ valid: false, reason: 'malformed_fp' });
+    }
+
     // 1. Verify JWT signature + expiry.
     let decoded;
     try {
@@ -398,7 +457,7 @@ app.post('/verify-device', deviceLimiter, async (req, res) => {
 
     // 3. Device must exist and not be revoked.
     const row = await pool.query(
-      `SELECT device_id, phone, token_jti, revoked_at, expires_at
+      `SELECT device_id, phone, token_jti, revoked_at, expires_at, activation_status
        FROM devices WHERE device_id = $1`,
       [fp]
     );
@@ -412,13 +471,17 @@ app.post('/verify-device', deviceLimiter, async (req, res) => {
       return res.status(403).json({ valid: false, reason: 'revoked' });
     }
     if (dev.token_jti !== decoded.jti) {
-      // Old token, device re-issued. Force re-register (rare).
       await event(false, 'token_superseded', fp, dev.phone);
       return res.status(403).json({ valid: false, reason: 'token_superseded' });
     }
     if (new Date(dev.expires_at) < new Date()) {
       await event(false, 'expired', fp, dev.phone);
       return res.status(403).json({ valid: false, reason: 'expired' });
+    }
+    // 4. Genuine device, but not (yet) paid for. Only reachable in 'paid' mode.
+    if (dev.activation_status !== 'active') {
+      await event(false, 'not_activated', fp, dev.phone);
+      return res.status(403).json({ valid: false, reason: 'not_activated', device_genuine: true });
     }
 
     // All good — touch last_seen.
@@ -431,6 +494,7 @@ app.post('/verify-device', deviceLimiter, async (req, res) => {
     return res.json({
       valid: true,
       phone: dev.phone,
+      activation_status: dev.activation_status,
       activationCode: deriveActivationCode(dev.device_id),
       expires_at: dev.expires_at
     });
@@ -441,8 +505,9 @@ app.post('/verify-device', deviceLimiter, async (req, res) => {
   }
 });
 
-// ====================== NEW: /revoke-device ======================
-// Admin / support endpoint. Protect with CRON_SECRET or a separate admin key.
+// ====================== /revoke-device ======================
+// Admin / support endpoint. Protect with ADMIN_SECRET.
+// Support flow for "I lost my phone / data": revoke, then the user registers again.
 app.post('/revoke-device', async (req, res) => {
   const secret = req.headers['x-admin-secret'];
   if (!process.env.ADMIN_SECRET || secret !== process.env.ADMIN_SECRET) {
@@ -494,10 +559,11 @@ app.post('/lookup-fingerprint', async (req, res) => {
   const forms = [normalized, localForm, plusForm];
 
   try {
-    // New source of truth
+    // Source of truth: devices (active + paid/activated only)
     const devRes = await pool.query(
       `SELECT device_id, revoked_at, expires_at FROM devices
        WHERE phone = ANY($1::text[]) AND revoked_at IS NULL AND expires_at > NOW()
+         AND activation_status = 'active'
        ORDER BY issued_at DESC LIMIT 1`,
       [forms]
     );
@@ -636,422 +702,7 @@ app.get('/', (req, res) => {
   res.json({ status: 'ok', service: 'travis-api', time: new Date().toISOString() });
 });
 
-app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`)); Please wait 60 seconds before trying again.' },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-
-// ====================== Web Push (VAPID) ======================
-webpush.setVapidDetails(
-  process.env.VAPID_SUBJECT || 'mailto:jobisaacmaina22@gmail.com',
-  process.env.VAPID_PUBLIC_KEY,
-  process.env.VAPID_PRIVATE_KEY
-);
-
-// ====================== Supabase Postgres Connection Pool ======================
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
-  max: 10,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 15000
-});
-
-pool.query('SELECT NOW()')
-  .then(() => console.log('✅ Supabase Postgres connected successfully'))
-  .catch(err => console.error('❌ Supabase connection error:', err.message));
-
-// Bootstrap push_subscriptions table
-pool.query(`
-  CREATE TABLE IF NOT EXISTS push_subscriptions (
-    id SERIAL PRIMARY KEY,
-    endpoint TEXT UNIQUE NOT NULL,
-    p256dh TEXT NOT NULL,
-    auth TEXT NOT NULL,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-  )
-`).then(() => console.log('✅ push_subscriptions table ready'))
-  .catch(err => console.error('❌ push_subscriptions setup error:', err.message));
-
-// ====================== Helper Functions ======================
-function sanitizePhone(phone) {
-  if (!phone) return '';
-  return phone.toString().replace(/[^0-9+]/g, '').trim();
-}
-
-function cleanPhone(phone) {
-  if (!phone) return null;
-  return phone.toString().replace(/[\s\-\+]/g, '');
-}
-
-function isValidKenyanPhone(phone) {
-  const cleaned = sanitizePhone(phone);
-  return /^(\+?254|0)[17]\d{8}$/.test(cleaned) && cleaned.length >= 9;
-}
-
-function sanitizeText(text) {
-  if (!text) return '';
-  return text.toString().trim().replace(/[<>"/\\]/g, '');
-}
-
-function decryptFingerprint(encryptedBase64) {
-  const key = "TRAVIS-GUARDIAN-SECURE-2026-x7k9";
-  let decoded;
-  try {
-    decoded = Buffer.from(encryptedBase64, 'base64').toString('binary');
-  } catch { return null; }
-  let fp = '';
-  for (let i = 0; i < decoded.length; i++) {
-    fp += String.fromCharCode(decoded.charCodeAt(i) ^ key.charCodeAt(i % key.length));
-  }
-  return fp;
-}
-
-function normalizeKenyanPhone(phone) {
-  if (!phone) return '';
-  let p = phone.toString().replace(/[\s\-\(\)]/g, '');
-  if (p.startsWith('+')) p = p.slice(1);
-  if (p.startsWith('0')) p = '254' + p.slice(1);
-  if (p.startsWith('7') || p.startsWith('1')) p = '254' + p;
-  return p;
-}
-
-// ====================== Auth Middleware ======================
-const auth = (req, res, next) => {
-  const token = req.headers.authorization?.split(' ')[1];
-  if (!token) {
-    return res.status(401).json({ error: 'No token provided' });
-  }
-  try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = decoded;
-    next();
-  } catch (e) {
-    console.error("JWT Error:", e.message);
-    return res.status(401).json({ error: 'Invalid token' });
-  }
-};
-
-// ====================== Routes ======================
-
-app.post('/register', authLimiter, async (req, res) => {
-  const { fullName, location, phone, email, password } = req.body;
-  const sanitizedFullName = sanitizeText(fullName);
-  const sanitizedLocation = sanitizeText(location);
-  const sanitizedPhone = sanitizePhone(phone);
-  const sanitizedPassword = password ? password.toString().trim() : '';
-
-  if (!sanitizedFullName || !sanitizedLocation || !sanitizedPhone || !sanitizedPassword) {
-    return res.status(400).json({ error: 'Missing or invalid fields' });
-  }
-  if (!isValidKenyanPhone(sanitizedPhone)) {
-    return res.status(400).json({ error: 'Invalid Kenyan phone number' });
-  }
-  if (sanitizedPassword.length < 6) {
-    return res.status(400).json({ error: 'Password must be at least 6 characters' });
-  }
-
-  try {
-    const existing = await pool.query('SELECT id FROM users WHERE phone = $1', [sanitizedPhone]);
-    if (existing.rows.length > 0) {
-      return res.status(400).json({ error: 'Phone already registered' });
-    }
-
-    const hashed = await bcrypt.hash(sanitizedPassword, 10);
-
-    await pool.query(
-      `INSERT INTO users (full_name, location, phone, email, password)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [sanitizedFullName, sanitizedLocation, sanitizedPhone, email ? email.trim() : null, hashed]
-    );
-
-    res.json({ message: 'Registered successfully' });
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
-app.post('/login', authLimiter, async (req, res) => {
-  try {
-    let { phone, password } = req.body;
-    phone = sanitizePhone(phone);
-    password = password ? password.toString().trim() : '';
-
-    if (!phone || !password) {
-      return res.status(400).json({ error: 'Phone and password are required' });
-    }
-    if (!isValidKenyanPhone(phone)) {
-      return res.status(400).json({ error: 'Invalid phone number' });
-    }
-    if (password.length < 6) {
-      return res.status(400).json({ error: 'Invalid credentials' });
-    }
-
-    const result = await pool.query('SELECT * FROM users WHERE phone = $1', [phone]);
-    const user = result.rows[0];
-
-    if (!user) {
-      return res.status(401).json({ error: 'Invalid credentials' });
-    }
-
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
-      return res.status(401).json({ error: 'Invalid credentials' });
-    }
-
-    const token = jwt.sign(
-      { id: user.id, phone: user.phone },
-      process.env.JWT_SECRET,
-      { expiresIn: '7d' }
-    );
-
-    return res.json({
-      token,
-      user: {
-        fullName: user.full_name,
-        phone: user.phone,
-        successQueries: user.success_queries || 0,
-        failureQueries: user.failure_queries || 0
-      }
-    });
-  } catch (err) {
-    console.error("LOGIN ROUTE CRASHED:", err);
-    return res.status(500).json({ error: 'Server error during login' });
-  }
-});
-
-app.post('/store-fingerprint', async (req, res) => {
-  const { encrypted, phone } = req.body;
-  if (!encrypted || !phone) return res.status(400).json({ error: 'Missing data' });
-
-  const fp = decryptFingerprint(encrypted);
-  if (!fp) return res.status(400).json({ error: 'Invalid fingerprint' });
-
-  try {
-    await pool.query(
-      `INSERT INTO fingerprints (phone, fp, used, created_at)
-       VALUES ($1, $2, $3, NOW())
-       ON CONFLICT (phone) DO UPDATE 
-       SET fp = $2, used = $3, created_at = NOW()`,
-      [phone, fp, false]
-    );
-
-    res.json({ status: 'stored', message: 'Device fingerprint linked successfully' });
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
-app.post('/lookup-fingerprint', async (req, res) => {
-  const { phone } = req.body || {};
-  if (!phone) return res.status(400).json({ error: 'Phone number is required' });
-
-  const normalized = normalizeKenyanPhone(phone);
-  if (!/^254(7|1)\d{8}$/.test(normalized)) {
-    return res.status(400).json({ error: 'Invalid Kenyan phone number' });
-  }
-
-  const localForm = '0' + normalized.slice(3);
-  const plusForm  = '+' + normalized;
-
-  try {
-    const fpRes = await pool.query(
-      `SELECT fp, used FROM fingerprints
-       WHERE phone = ANY($1::text[])
-       LIMIT 1`,
-      [[normalized, localForm, plusForm]]
-    );
-
-    if (fpRes.rows[0] && fpRes.rows[0].fp) {
-      const storedFp = fpRes.rows[0].fp;
-      const extracted = storedFp.substring(3, 11);
-      const formattedFP = `TRV-KE-${extracted}-5634`;
-      return res.json({
-        phone: normalized,
-        fingerprint: formattedFP,
-        source: 'fingerprints',
-        used: !!fpRes.rows[0].used
-      });
-    }
-
-    const logRes = await pool.query(
-      `SELECT formatted_fp FROM query_logs
-       WHERE target_phone = ANY($1::text[])
-       ORDER BY queried_at DESC
-       LIMIT 1`,
-      [[normalized, localForm, plusForm]]
-    );
-
-    if (logRes.rows[0] && logRes.rows[0].formatted_fp) {
-      return res.json({
-        phone: normalized,
-        fingerprint: logRes.rows[0].formatted_fp,
-        source: 'query_logs'
-      });
-    }
-
-    return res.status(404).json({ error: 'No fingerprint found for that number' });
-  } catch (e) {
-    console.error('Lookup error:', e);
-    return res.status(500).json({ error: 'Server error during lookup' });
-  }
-});
-
-app.get('/my-queries', auth, async (req, res) => {
-  try {
-    const logsRes = await pool.query(
-      `SELECT 
-         target_phone,
-         formatted_fp AS "formattedFP",
-         receipt,
-         queried_at AS "queriedAt"
-       FROM query_logs 
-       WHERE user_id = $1 
-       ORDER BY queried_at DESC`,
-      [req.user.id]
-    );
-
-    const logs = logsRes.rows;
-
-    const maskedLogs = logs.map(log => {
-      const phone = log.target_phone || '';
-      const maskedPhone = phone.length > 3
-        ? phone.slice(0, -3) + 'XXX'
-        : phone + 'XXX';
-
-      return {
-        formattedFP: log.formattedFP || '',
-        receipt: log.receipt || '-',
-        queriedAt: log.queriedAt,
-        maskedPhone: maskedPhone,
-        targetPhone: undefined
-      };
-    });
-
-    res.json(maskedLogs);
-  } catch (e) {
-    console.error("My Queries Error:", e);
-    res.status(500).json({ error: 'Failed to load queries' });
-  }
-});
-
-app.get('/me', auth, async (req, res) => {
-  try {
-    const userRes = await pool.query(
-      `SELECT 
-         full_name AS "fullName",
-         phone,
-         success_queries AS "successQueries",
-         failure_queries AS "failureQueries"
-       FROM users 
-       WHERE id = $1`,
-      [req.user.id]
-    );
-
-    res.json(userRes.rows[0] || {});
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
-// ====================== Web Push: VAPID public key ======================
-app.get('/vapid-public-key', (req, res) => {
-  res.json({ key: process.env.VAPID_PUBLIC_KEY });
-});
-
-// ====================== Web Push: store subscription ======================
-app.post('/subscribe', async (req, res) => {
-  const sub = req.body;
-  if (!sub || !sub.endpoint || !sub.keys || !sub.keys.p256dh || !sub.keys.auth) {
-    return res.status(400).json({ error: 'Invalid subscription' });
-  }
-
-  try {
-    await pool.query(
-      `INSERT INTO push_subscriptions (endpoint, p256dh, auth)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (endpoint) DO UPDATE 
-       SET p256dh = $2, auth = $3`,
-      [sub.endpoint, sub.keys.p256dh, sub.keys.auth]
-    );
-    res.json({ ok: true });
-  } catch (e) {
-    console.error('Subscribe error:', e);
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
-// ====================== Web Push: cron trigger ======================
-app.post('/cron/send-reminders', async (req, res) => {
-  const secret = req.headers['x-cron-secret'];
-  if (!process.env.CRON_SECRET || secret !== process.env.CRON_SECRET) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
-
-  const titles = [
-    'Hey, quick check-in',
-    'Your ledger is waiting',
-    "Don't let today slip by",
-    'One small habit, big difference',
-    'Travis reminder'
-  ];
-
-  const bodies = [
-    "Have you recorded today's transactions? Travis needs them to keep your advice accurate — it takes under a minute.",
-    "A day without entries means Travis is working with yesterday's numbers. Tap to log what came in and went out today.",
-    "Accurate records are what make Travis's advice useful. Take a moment to log today's transactions.",
-    "Recording today's transactions keeps your financial picture sharp. It only takes a moment — tap to open Travis.",
-    "Today's numbers aren't in yet. The more current your records, the more accurate your advice. Tap to update your ledger."
-  ];
-
-  const idx = new Date().getDate() % titles.length;
-  const payload = JSON.stringify({
-    title: titles[idx],
-    body:  bodies[idx]
-  });
-
-  let sent = 0;
-  let removed = 0;
-  let failed = 0;
-
-  try {
-    const result = await pool.query(
-      'SELECT id, endpoint, p256dh, auth FROM push_subscriptions'
-    );
-
-    for (const row of result.rows) {
-      const subscription = {
-        endpoint: row.endpoint,
-        keys: { p256dh: row.p256dh, auth: row.auth }
-      };
-
-      try {
-        await webpush.sendNotification(subscription, payload);
-        sent++;
-      } catch (err) {
-        if (err.statusCode === 404 || err.statusCode === 410) {
-          await pool.query('DELETE FROM push_subscriptions WHERE id = $1', [row.id]);
-          removed++;
-        } else {
-          failed++;
-          console.error('Push send failed:', err.statusCode, err.message);
-        }
-      }
-    }
-
-    res.json({ ok: true, sent, removed, failed, total: result.rows.length });
-  } catch (e) {
-    console.error('Cron send error:', e);
-    res.status(500).json({ error: 'Cron send failed' });
-  }
-});
-
-// Health check
-app.get('/', (req, res) => {
-  res.json({ status: 'ok', service: 'travis-api', time: new Date().toISOString() });
-});
-
 app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
+
+// Exported for the future payment callback route (PesaFlux / Daraja).
+module.exports = { grantActivation, deriveActivationCode };
