@@ -38,6 +38,14 @@ const deviceLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+// Verify is cheap (one indexed read) and many phones share one carrier IP, so allow more.
+const verifyLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // ====================== Web Push (VAPID) ======================
 webpush.setVapidDetails(
   process.env.VAPID_SUBJECT || 'mailto:jobisaacmaina22@gmail.com',
@@ -153,6 +161,17 @@ pool.query('SELECT NOW()')
     console.error('⚠️ could not create uniq_active_device_phone (duplicate live devices for one phone exist?):', err.message);
   }
 })();
+
+// Audit rows older than 30 days are deleted daily so the table can't grow without bound.
+async function pruneDeviceEvents() {
+  try {
+    await pool.query(`DELETE FROM device_events WHERE created_at < NOW() - INTERVAL '30 days'`);
+  } catch (e) {
+    console.error('prune device_events failed:', e.message);
+  }
+}
+setTimeout(pruneDeviceEvents, 60 * 1000);
+setInterval(pruneDeviceEvents, 24 * 3600 * 1000);
 
 // ====================== Helpers ======================
 function sanitizePhone(phone) {
@@ -410,7 +429,7 @@ app.post('/register-device', deviceLimiter, async (req, res) => {
 // Called by the client on activation and on every online boot.
 // Client rule: ONLY a response with valid:false and HTTP 401/403/404 sends the user
 // back to the activation window. Timeouts / 429 / 5xx never do.
-app.post('/verify-device', deviceLimiter, async (req, res) => {
+app.post('/verify-device', verifyLimiter, async (req, res) => {
   const { fp, token } = req.body || {};
   const ip = req.ip;
   const ua = (req.headers['user-agent'] || '').substring(0, 500);
@@ -457,7 +476,7 @@ app.post('/verify-device', deviceLimiter, async (req, res) => {
 
     // 3. Device must exist and not be revoked.
     const row = await pool.query(
-      `SELECT device_id, phone, token_jti, revoked_at, expires_at, activation_status
+      `SELECT device_id, phone, token_jti, revoked_at, expires_at, activation_status, last_seen_at
        FROM devices WHERE device_id = $1`,
       [fp]
     );
@@ -484,12 +503,14 @@ app.post('/verify-device', deviceLimiter, async (req, res) => {
       return res.status(403).json({ valid: false, reason: 'not_activated', device_genuine: true });
     }
 
-    // All good — touch last_seen.
-    await pool.query(
-      `UPDATE devices SET last_seen_at = NOW(), last_ip = $2, last_ua = $3 WHERE device_id = $1`,
-      [fp, ip, ua]
-    );
-    await event(true, null, fp, dev.phone);
+    // All good. Successful checks are NOT logged (only failures are), and last_seen is
+    // refreshed at most once a day and not awaited, so a normal boot is a single read.
+    if (!dev.last_seen_at || Date.now() - new Date(dev.last_seen_at).getTime() > 24 * 3600 * 1000) {
+      pool.query(
+        `UPDATE devices SET last_seen_at = NOW(), last_ip = $2, last_ua = $3 WHERE device_id = $1`,
+        [fp, ip, ua]
+      ).catch(() => {});
+    }
 
     return res.json({
       valid: true,
