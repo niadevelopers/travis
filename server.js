@@ -46,6 +46,13 @@ const verifyLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+const adminLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 const recoveryLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 10,
@@ -87,6 +94,9 @@ console.log(`ℹ️  Activation mode: ${ACTIVATION_MODE}`);
 const WA_NUMBER = (process.env.WHATSAPP_BUSINESS_NUMBER || '').replace(/\D/g, '');
 const WA_VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN || '';
 const WA_APP_SECRET = process.env.WHATSAPP_APP_SECRET || '';
+// How long a verification request stays valid. A person approving by hand needs longer than
+// an automatic check, so the default is 60 min in manual mode and 10 min when automatic.
+const RECOVERY_TTL_MIN = parseInt(process.env.RECOVERY_TTL_MINUTES, 10) || (WA_APP_SECRET ? 10 : 60);
 console.log(`ℹ️  WhatsApp verification: ${!WA_NUMBER ? 'NOT configured (set WHATSAPP_BUSINESS_NUMBER)' : WA_APP_SECRET ? 'automatic (webhook)' : 'manual approval only (no WHATSAPP_APP_SECRET)'}`);
 
 // ====================== Supabase Postgres Connection Pool ======================
@@ -677,18 +687,18 @@ app.post('/recovery/start', recoveryLimiter, async (req, res) => {
 
     const id = crypto.randomBytes(12).toString('hex');
     const code = newVerifyCode();
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+    const expiresAt = new Date(Date.now() + RECOVERY_TTL_MIN * 60 * 1000);
     await pool.query(
       `INSERT INTO phone_challenges (id, code, phone, expires_at, ip) VALUES ($1, $2, $3, $4, $5)`,
       [id, code, phoneKey, expiresAt, req.ip]
     );
-    const token = jwt.sign({ sub: id, phone: phoneKey, type: 'recovery' }, DEVICE_SIGNING_SECRET, { expiresIn: '15m' });
+    const token = jwt.sign({ sub: id, phone: phoneKey, type: 'recovery' }, DEVICE_SIGNING_SECRET, { expiresIn: `${RECOVERY_TTL_MIN + 5}m` });
     const text = `Verify my Travis device: ${code}`;
     return res.json({
       token,
       code,
       wa_link: `https://wa.me/${WA_NUMBER}?text=${encodeURIComponent(text)}`,
-      expires_in: 600
+      expires_in: RECOVERY_TTL_MIN * 60
     });
   } catch (e) {
     console.error('recovery/start error:', e);
@@ -795,7 +805,7 @@ app.post('/whatsapp/webhook', async (req, res) => {
 // Manual approval (works with the normal WhatsApp Business app, no Meta developer account):
 // the user sends the prefilled message to your WhatsApp number; you see their number on the
 // message, then approve with the code AND the number you saw. Both must match the request.
-app.post('/recovery/approve', async (req, res) => {
+app.post('/recovery/approve', adminLimiter, async (req, res) => {
   const secret = req.headers['x-admin-secret'];
   if (!process.env.ADMIN_SECRET || secret !== process.env.ADMIN_SECRET) {
     return res.status(401).json({ error: 'Unauthorized' });
@@ -820,31 +830,144 @@ app.post('/recovery/approve', async (req, res) => {
   }
 });
 
+const ADMIN_HTML = String.raw`<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex"><title>Travis Admin</title>
+<style>
+body{font-family:system-ui,sans-serif;background:#f4f5f7;color:#222;margin:0;padding:16px}
+.w{max-width:520px;margin:0 auto}
+h1{font-size:18px;margin:0 0 12px}
+.c{background:#fff;border-radius:10px;padding:14px;margin-bottom:12px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.c h2{font-size:14px;margin:0 0 6px}
+.n{font-size:12px;color:#666;line-height:1.5;margin:0 0 8px}
+input{width:100%;box-sizing:border-box;padding:10px;margin:4px 0;border:1px solid #ccc;border-radius:8px;font-size:14px}
+button{padding:10px 14px;border:0;border-radius:8px;background:#0078D4;color:#fff;font-size:14px;cursor:pointer;margin-top:4px}
+button.d{background:#C42B1C}
+#out{white-space:pre-wrap;font-size:13px;padding:10px;border-radius:8px;margin-top:6px;display:none}
+#out.ok{display:block;background:#e6f4ea;color:#14532d}
+#out.bad{display:block;background:#fde8e8;color:#7f1d1d}
+</style></head><body><div class="w">
+<h1>Travis Admin</h1>
+<div class="c"><h2>Admin secret</h2>
+<p class="n">Typed here, sent only with each action, never saved by this page.</p>
+<input id="secret" type="password" placeholder="ADMIN_SECRET" autocomplete="off"></div>
+<div id="out"></div>
+<div class="c"><h2>1. Approve a WhatsApp verification</h2>
+<p class="n">Open the WhatsApp message "Verify my Travis device: TRV-XXXXXX". Enter that code and the number shown at the top of that WhatsApp chat. Never use a number the person tells you.</p>
+<input id="a-code" placeholder="Code, e.g. TRV-78AZ6J" autocapitalize="characters">
+<input id="a-phone" placeholder="Number shown in the WhatsApp chat" inputmode="tel">
+<button id="approve">Approve</button></div>
+<div class="c"><h2>2. Look up a number</h2>
+<input id="l-phone" placeholder="Phone number" inputmode="tel">
+<button id="lookup">Look up</button></div>
+<div class="c"><h2>3. Revoke a number's device</h2>
+<p class="n">Frees the number. The person must register again. Their data on their own phone is untouched.</p>
+<input id="r-phone" placeholder="Phone number" inputmode="tel">
+<button id="revoke" class="d">Revoke</button></div>
+<script>
+var $=function(i){return document.getElementById(i)};
+function show(ok,m){var o=$('out');o.className=ok?'ok':'bad';o.textContent=m}
+async function call(path,body){
+  var secret=$('secret').value.trim();
+  if(!secret){show(false,'Enter the admin secret first.');return null}
+  try{
+    var r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','x-admin-secret':secret},body:JSON.stringify(body)});
+    var j={};try{j=await r.json()}catch(e){}
+    if(r.status===401){show(false,'Wrong admin secret.');return null}
+    if(r.status===429){show(false,'Too many attempts. Wait a minute.');return null}
+    return {s:r.status,j:j}
+  }catch(e){show(false,'Could not reach the server.');return null}
+}
+$('approve').onclick=async function(){
+  var code=$('a-code').value.trim(),phone=$('a-phone').value.trim();
+  if(!code||!phone){show(false,'Enter the code and the number shown in the WhatsApp chat.');return}
+  var r=await call('/recovery/approve',{code:code,phone:phone});if(!r)return;
+  show(r.s===200,r.s===200?'Approved. The person\'s app continues within a few seconds.':(r.j.error||('Failed ('+r.s+')')));
+};
+$('lookup').onclick=async function(){
+  var phone=$('l-phone').value.trim();if(!phone){show(false,'Enter a phone number.');return}
+  var r=await call('/admin/lookup',{phone:phone});if(!r)return;
+  if(r.s!==200){show(false,r.j.error||('Failed ('+r.s+')'));return}
+  var d=r.j;
+  if(!d.registered){show(true,'No device has ever been registered for this number.');return}
+  show(true,'Status: '+d.state+'\nActivation: '+d.activation_status+'\nRegistered: '+d.issued_at+'\nLast seen: '+(d.last_seen_at||'never')+'\nExpires: '+d.expires_at+(d.revoked_at?'\nRevoked: '+d.revoked_at:'')+'\nPending verification requests: '+d.pending_requests);
+};
+$('revoke').onclick=async function(){
+  var phone=$('r-phone').value.trim();if(!phone){show(false,'Enter a phone number.');return}
+  if(!confirm('Revoke the device for '+phone+'? They will have to register again.'))return;
+  var r=await call('/revoke-device',{phone:phone});if(!r)return;
+  show(r.s===200,r.s===200?(r.j.revoked?'Revoked '+r.j.revoked+' device(s).':'Nothing to revoke: no active device for that number.'):(r.j.error||('Failed ('+r.s+')')));
+};
+</script></div></body></html>`;
+
+app.get('/admin', (req, res) => {
+  res.set('Cache-Control', 'no-store').type('html').send(ADMIN_HTML);
+});
+
+// Status of a phone number (no device id or token is ever returned).
+app.post('/admin/lookup', adminLimiter, async (req, res) => {
+  const secret = req.headers['x-admin-secret'];
+  if (!process.env.ADMIN_SECRET || secret !== process.env.ADMIN_SECRET) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  const phoneKey = normalizeKenyanPhone(sanitizePhone(req.body && req.body.phone));
+  if (!/^254[17]\d{8}$/.test(phoneKey)) return res.status(400).json({ error: 'Invalid Kenyan phone number' });
+  try {
+    const d = await pool.query(
+      `SELECT activation_status, issued_at, last_seen_at, expires_at, revoked_at
+         FROM devices WHERE phone = $1 ORDER BY issued_at DESC LIMIT 1`,
+      [phoneKey]
+    );
+    if (!d.rows[0]) return res.json({ registered: false });
+    const p = await pool.query(
+      `SELECT COUNT(*)::int AS n FROM phone_challenges
+        WHERE phone = $1 AND verified_at IS NULL AND consumed_at IS NULL AND expires_at > NOW()`,
+      [phoneKey]
+    );
+    const row = d.rows[0];
+    const live = !row.revoked_at && new Date(row.expires_at) > new Date();
+    return res.json({
+      registered: true,
+      state: row.revoked_at ? 'revoked' : (live ? 'active' : 'expired'),
+      activation_status: row.activation_status,
+      issued_at: row.issued_at,
+      last_seen_at: row.last_seen_at,
+      expires_at: row.expires_at,
+      revoked_at: row.revoked_at,
+      pending_requests: p.rows[0].n
+    });
+  } catch (e) {
+    console.error('admin/lookup error:', e);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // ====================== /revoke-device ======================
 // Admin / support endpoint. Protect with ADMIN_SECRET.
 // Support flow for "I lost my phone / data": revoke, then the user registers again.
-app.post('/revoke-device', async (req, res) => {
+app.post('/revoke-device', adminLimiter, async (req, res) => {
   const secret = req.headers['x-admin-secret'];
   if (!process.env.ADMIN_SECRET || secret !== process.env.ADMIN_SECRET) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
   const { device_id, phone } = req.body || {};
   try {
+    let r;
     if (device_id) {
-      await pool.query(
-        `UPDATE devices SET revoked_at = NOW() WHERE device_id = $1`,
+      r = await pool.query(
+        `UPDATE devices SET revoked_at = NOW() WHERE device_id = $1 AND revoked_at IS NULL`,
         [device_id]
       );
     } else if (phone) {
       const p = normalizeKenyanPhone(phone);
-      await pool.query(
+      r = await pool.query(
         `UPDATE devices SET revoked_at = NOW() WHERE phone = $1 AND revoked_at IS NULL`,
         [p]
       );
     } else {
       return res.status(400).json({ error: 'device_id or phone required' });
     }
-    res.json({ ok: true });
+    res.json({ ok: true, revoked: r.rowCount || 0 });
   } catch (e) {
     console.error('revoke error:', e);
     res.status(500).json({ error: 'Server error' });
