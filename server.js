@@ -19,7 +19,7 @@ app.use(cors({
   credentials: true
 }));
 
-app.use(express.json());
+app.use(express.json({ verify: (req, res, buf) => { req.rawBody = buf; } }));
 app.use(express.static(__dirname));
 
 const authLimiter = rateLimit({
@@ -42,6 +42,13 @@ const deviceLimiter = rateLimit({
 const verifyLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const recoveryLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -70,6 +77,17 @@ const DEVICE_TOKEN_TTL_DAYS = 365; // how long a device stays registered
 //          grantActivation() is called (from the PesaFlux/Daraja callback, ResultCode 0).
 const ACTIVATION_MODE = (process.env.ACTIVATION_MODE || 'free').toLowerCase() === 'paid' ? 'paid' : 'free';
 console.log(`ℹ️  Activation mode: ${ACTIVATION_MODE}`);
+
+// ====================== WhatsApp ownership check (free, inbound-only) ======================
+// The user sends a short code TO our WhatsApp business number; Meta's webhook tells us which
+// number it came from. We never send a WhatsApp message, so there is nothing to pay for.
+//   WHATSAPP_BUSINESS_NUMBER  digits only, e.g. 254140438390
+//   WHATSAPP_VERIFY_TOKEN     any string you choose; paste the same one into Meta's webhook setup
+//   WHATSAPP_APP_SECRET       the app secret from your Meta app (used to check webhook signatures)
+const WA_NUMBER = (process.env.WHATSAPP_BUSINESS_NUMBER || '').replace(/\D/g, '');
+const WA_VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN || '';
+const WA_APP_SECRET = process.env.WHATSAPP_APP_SECRET || '';
+console.log(`ℹ️  WhatsApp verification: ${!WA_NUMBER ? 'NOT configured (set WHATSAPP_BUSINESS_NUMBER)' : WA_APP_SECRET ? 'automatic (webhook)' : 'manual approval only (no WHATSAPP_APP_SECRET)'}`);
 
 // ====================== Supabase Postgres Connection Pool ======================
 const pool = new Pool({
@@ -145,7 +163,23 @@ pool.query('SELECT NOW()')
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_device_events_dev ON device_events(device_id)`);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_device_events_created ON device_events(created_at DESC)`);
 
-    console.log('✅ tables ready (push_subscriptions, fingerprints, devices, device_events)');
+    // Pending / completed WhatsApp ownership checks
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS phone_challenges (
+        id           TEXT PRIMARY KEY,
+        code         TEXT NOT NULL,
+        phone        TEXT NOT NULL,
+        created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        expires_at   TIMESTAMPTZ NOT NULL,
+        verified_at  TIMESTAMPTZ,
+        consumed_at  TIMESTAMPTZ,
+        ip           TEXT
+      )
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_phone_challenges_code ON phone_challenges(code)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_phone_challenges_phone ON phone_challenges(phone, created_at DESC)`);
+
+    console.log('✅ tables ready (push_subscriptions, fingerprints, devices, device_events, phone_challenges)');
   } catch (err) {
     console.error('❌ table bootstrap error:', err.message);
   }
@@ -166,6 +200,7 @@ pool.query('SELECT NOW()')
 async function pruneDeviceEvents() {
   try {
     await pool.query(`DELETE FROM device_events WHERE created_at < NOW() - INTERVAL '30 days'`);
+    await pool.query(`DELETE FROM phone_challenges WHERE created_at < NOW() - INTERVAL '1 day'`);
   } catch (e) {
     console.error('prune device_events failed:', e.message);
   }
@@ -220,6 +255,36 @@ async function grantActivation(deviceId, reference) {
     [deviceId, reference || null]
   );
   return r.rowCount > 0;
+}
+
+// Keep the SAME device_id for a phone but issue a fresh token (old token stops working).
+// Used when ownership is proven (backup fingerprint, or WhatsApp check).
+async function rotateDeviceToken(deviceId, phoneKey, ip, ua) {
+  const jti = crypto.randomBytes(16).toString('hex');
+  const expiresAt = new Date(Date.now() + DEVICE_TOKEN_TTL_DAYS * 86400 * 1000);
+  const upd = await pool.query(
+    `UPDATE devices
+        SET token_jti = $2, expires_at = $3, last_seen_at = NOW(), last_ip = $4, last_ua = $5
+      WHERE device_id = $1 AND phone = $6 AND revoked_at IS NULL
+      RETURNING activation_status`,
+    [deviceId, jti, expiresAt, ip, ua, phoneKey]
+  );
+  if (!upd.rows[0]) return null;
+  const token = jwt.sign(
+    { sub: deviceId, phone: phoneKey, jti, type: 'device' },
+    DEVICE_SIGNING_SECRET,
+    { expiresIn: `${DEVICE_TOKEN_TTL_DAYS}d` }
+  );
+  const status = upd.rows[0].activation_status;
+  const body = {
+    device_id: deviceId,
+    token,
+    activation_status: status,
+    recovered: true,
+    expires_at: expiresAt.toISOString()
+  };
+  if (status === 'active') body.activationCode = deriveActivationCode(deviceId);
+  return body;
 }
 
 // ====================== Auth Middleware ======================
@@ -330,6 +395,29 @@ app.post('/register-device', deviceLimiter, async (req, res) => {
   const phoneKey = normalizeKenyanPhone(cleanPhone);
 
   try {
+    // A backup carries the device_id it was issued. If that device is still live and belongs
+    // to a DIFFERENT phone, refuse straight away: a backup can only be restored under the
+    // number it was registered with (this also stops one backup being used to mint devices
+    // for other people's numbers). Nothing about the real number is revealed.
+    const claimedFp = typeof req.body.fp === 'string' ? req.body.fp.trim().toUpperCase() : '';
+    if (DEVICE_ID_RE.test(claimedFp)) {
+      const own = await pool.query(
+        `SELECT phone FROM devices WHERE device_id = $1 AND revoked_at IS NULL AND expires_at > NOW()`,
+        [claimedFp]
+      );
+      if (own.rows[0] && own.rows[0].phone !== phoneKey) {
+        await pool.query(
+          `INSERT INTO device_events (device_id, phone, event_type, success, reason, ip, ua)
+           VALUES ($1, $2, 'register', FALSE, 'phone_mismatch', $3, $4)`,
+          [claimedFp, phoneKey, ip, ua]
+        ).catch(() => {});
+        return res.status(409).json({
+          code: 'phone_mismatch',
+          error: 'This backup belongs to a different phone number. Enter the number you originally registered with.'
+        });
+      }
+    }
+
     // Housekeeping: a device past its expiry no longer blocks the phone.
     await pool.query(
       `UPDATE devices SET revoked_at = NOW()
@@ -351,40 +439,18 @@ app.post('/register-device', deviceLimiter, async (req, res) => {
       // supersedes any older copy of the token. A phone number alone is NOT enough.
       const claimed = typeof req.body.fp === 'string' ? req.body.fp.trim().toUpperCase() : '';
       const stored = String(existing.rows[0].device_id);
-      const proofOk = DEVICE_ID_RE.test(claimed) &&
+      const proofOk = DEVICE_ID_RE.test(claimed) && claimed.length === stored.length &&
         crypto.timingSafeEqual(Buffer.from(claimed), Buffer.from(stored));
 
       if (proofOk) {
-        const jti = crypto.randomBytes(16).toString('hex');
-        const expiresAt = new Date(Date.now() + DEVICE_TOKEN_TTL_DAYS * 86400 * 1000);
-        const token = jwt.sign(
-          { sub: stored, phone: phoneKey, jti, type: 'device' },
-          DEVICE_SIGNING_SECRET,
-          { expiresIn: `${DEVICE_TOKEN_TTL_DAYS}d` }
-        );
-        const upd = await pool.query(
-          `UPDATE devices
-              SET token_jti = $2, expires_at = $3, last_seen_at = NOW(), last_ip = $4, last_ua = $5
-            WHERE device_id = $1 AND phone = $6 AND revoked_at IS NULL
-            RETURNING activation_status`,
-          [stored, jti, expiresAt, ip, ua, phoneKey]
-        );
-        if (upd.rows[0]) {
+        const rec = await rotateDeviceToken(stored, phoneKey, ip, ua);
+        if (rec) {
           await pool.query(
             `INSERT INTO device_events (device_id, phone, event_type, success, reason, ip, ua)
-             VALUES ($1, $2, 'recover', TRUE, NULL, $3, $4)`,
+             VALUES ($1, $2, 'recover', TRUE, 'backup_fp', $3, $4)`,
             [stored, phoneKey, ip, ua]
           ).catch(() => {});
-          const status = upd.rows[0].activation_status;
-          const body = {
-            device_id: stored,
-            token,
-            activation_status: status,
-            recovered: true,
-            expires_at: expiresAt.toISOString()
-          };
-          if (status === 'active') body.activationCode = deriveActivationCode(stored);
-          return res.json(body);
+          return res.json(rec);
         }
         // The device was revoked between the two queries: fall through to the refusal below.
       }
@@ -395,7 +461,8 @@ app.post('/register-device', deviceLimiter, async (req, res) => {
         [stored, phoneKey, proofOk ? 'recover_raced' : 'phone_already_linked', ip, ua]
       ).catch(() => {});
       return res.status(409).json({
-        error: 'This phone number is already linked to a device. Restore your backup on that device, or contact support to move it.'
+        code: 'phone_registered',
+        error: 'This phone number is already registered. Verify it on WhatsApp to restore your device.'
       });
     }
 
@@ -425,7 +492,8 @@ app.post('/register-device', deviceLimiter, async (req, res) => {
       // Two simultaneous registrations for one phone: the unique index lets only one win.
       if (insErr.code === '23505') {
         return res.status(409).json({
-          error: 'This phone number is already linked to a device. Restore your backup on that device, or contact support to move it.'
+          code: 'phone_registered',
+          error: 'This phone number is already registered. Verify it on WhatsApp to restore your device.'
         });
       }
       throw insErr;
@@ -567,6 +635,188 @@ app.post('/verify-device', verifyLimiter, async (req, res) => {
     console.error('verify-device error:', e);
     await event(false, 'server_error');
     return res.status(500).json({ valid: false, reason: 'server_error' });
+  }
+});
+
+// ====================== WhatsApp ownership check ======================
+// 1) /recovery/start    app asks for a code for a phone that is already registered
+// 2) user sends that code to our WhatsApp number (wa.me link prefilled by the app)
+// 3) /whatsapp/webhook  Meta tells us the sender; if it matches the phone, the check passes
+// 4) /recovery/complete app polls until passed, then receives the SAME device_id + a fresh token
+const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no I, O, 0, 1
+function newVerifyCode() {
+  let c = '';
+  for (let i = 0; i < 6; i++) c += CODE_ALPHABET[crypto.randomInt(CODE_ALPHABET.length)];
+  return 'TRV-' + c;
+}
+
+app.post('/recovery/start', recoveryLimiter, async (req, res) => {
+  if (!WA_NUMBER) {
+    return res.status(503).json({ error: 'WhatsApp verification is not available right now. Please contact support.' });
+  }
+  const { phone } = req.body || {};
+  const cleanPhone = sanitizePhone(phone);
+  if (!cleanPhone || !isValidKenyanPhone(cleanPhone)) {
+    return res.status(400).json({ error: 'Valid Kenyan phone number required' });
+  }
+  const phoneKey = normalizeKenyanPhone(cleanPhone);
+  try {
+    const dev = await pool.query(
+      `SELECT device_id FROM devices WHERE phone = $1 AND revoked_at IS NULL AND expires_at > NOW() LIMIT 1`,
+      [phoneKey]
+    );
+    if (!dev.rows[0]) return res.status(404).json({ error: 'no_device' });
+
+    const recent = await pool.query(
+      `SELECT COUNT(*)::int AS n FROM phone_challenges WHERE phone = $1 AND created_at > NOW() - INTERVAL '1 hour'`,
+      [phoneKey]
+    );
+    if (recent.rows[0].n >= 5) {
+      return res.status(429).json({ error: 'Too many verification attempts for this number. Try again in an hour.' });
+    }
+
+    const id = crypto.randomBytes(12).toString('hex');
+    const code = newVerifyCode();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+    await pool.query(
+      `INSERT INTO phone_challenges (id, code, phone, expires_at, ip) VALUES ($1, $2, $3, $4, $5)`,
+      [id, code, phoneKey, expiresAt, req.ip]
+    );
+    const token = jwt.sign({ sub: id, phone: phoneKey, type: 'recovery' }, DEVICE_SIGNING_SECRET, { expiresIn: '15m' });
+    const text = `Verify my Travis device: ${code}`;
+    return res.json({
+      token,
+      code,
+      wa_link: `https://wa.me/${WA_NUMBER}?text=${encodeURIComponent(text)}`,
+      expires_in: 600
+    });
+  } catch (e) {
+    console.error('recovery/start error:', e);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.post('/recovery/complete', verifyLimiter, async (req, res) => {
+  const { token } = req.body || {};
+  if (!token) return res.status(400).json({ status: 'invalid' });
+  let decoded;
+  try {
+    decoded = jwt.verify(token, DEVICE_SIGNING_SECRET);
+  } catch (e) {
+    return res.status(401).json({ status: 'invalid' });
+  }
+  if (decoded.type !== 'recovery' || !decoded.sub || !decoded.phone) {
+    return res.status(401).json({ status: 'invalid' });
+  }
+  const ip = req.ip;
+  const ua = (req.headers['user-agent'] || '').substring(0, 500);
+  try {
+    const r = await pool.query(
+      `SELECT expires_at, verified_at, consumed_at FROM phone_challenges WHERE id = $1 AND phone = $2`,
+      [decoded.sub, decoded.phone]
+    );
+    const ch = r.rows[0];
+    if (!ch) return res.status(404).json({ status: 'invalid' });
+    if (ch.consumed_at) return res.status(409).json({ status: 'used' });
+    if (new Date(ch.expires_at) < new Date()) return res.status(410).json({ status: 'expired' });
+    if (!ch.verified_at) return res.status(202).json({ status: 'pending' });
+
+    // Single use: only one caller can consume a verified check.
+    const taken = await pool.query(
+      `UPDATE phone_challenges SET consumed_at = NOW() WHERE id = $1 AND consumed_at IS NULL RETURNING id`,
+      [decoded.sub]
+    );
+    if (!taken.rows[0]) return res.status(409).json({ status: 'used' });
+
+    const dev = await pool.query(
+      `SELECT device_id FROM devices
+       WHERE phone = $1 AND revoked_at IS NULL AND expires_at > NOW()
+       ORDER BY issued_at DESC LIMIT 1`,
+      [decoded.phone]
+    );
+    if (!dev.rows[0]) return res.status(404).json({ status: 'no_device' });
+
+    const rec = await rotateDeviceToken(String(dev.rows[0].device_id), decoded.phone, ip, ua);
+    if (!rec) return res.status(404).json({ status: 'no_device' });
+
+    await pool.query(
+      `INSERT INTO device_events (device_id, phone, event_type, success, reason, ip, ua)
+       VALUES ($1, $2, 'recover', TRUE, 'whatsapp', $3, $4)`,
+      [rec.device_id, decoded.phone, ip, ua]
+    ).catch(() => {});
+    return res.json({ status: 'verified', ...rec });
+  } catch (e) {
+    console.error('recovery/complete error:', e);
+    return res.status(500).json({ status: 'error' });
+  }
+});
+
+// Meta webhook handshake (one-time, when you set the webhook up in the Meta dashboard).
+app.get('/whatsapp/webhook', (req, res) => {
+  if (WA_VERIFY_TOKEN && req.query['hub.mode'] === 'subscribe' && req.query['hub.verify_token'] === WA_VERIFY_TOKEN) {
+    return res.status(200).send(String(req.query['hub.challenge'] || ''));
+  }
+  return res.sendStatus(403);
+});
+
+// Incoming WhatsApp messages. Every request must carry Meta's HMAC signature; without
+// the app secret configured we refuse everything, so nobody can fake a "verified" sender.
+app.post('/whatsapp/webhook', async (req, res) => {
+  if (!WA_APP_SECRET) return res.sendStatus(503);
+  const sig = String(req.headers['x-hub-signature-256'] || '');
+  const expected = 'sha256=' + crypto.createHmac('sha256', WA_APP_SECRET).update(req.rawBody || Buffer.alloc(0)).digest('hex');
+  const ok = sig.length === expected.length && crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
+  if (!ok) return res.sendStatus(401);
+  res.sendStatus(200);   // acknowledge fast; Meta retries slow responses
+
+  try {
+    const entries = (req.body && req.body.entry) || [];
+    for (const entry of entries) {
+      for (const change of (entry.changes || [])) {
+        for (const msg of ((change.value && change.value.messages) || [])) {
+          const body = msg.text && msg.text.body;
+          if (!msg.from || !body) continue;
+          const m = String(body).toUpperCase().match(/\bTRV-([A-HJ-NP-Z2-9]{6})\b/);
+          if (!m) continue;
+          const sender = normalizeKenyanPhone(String(msg.from));
+          await pool.query(
+            `UPDATE phone_challenges SET verified_at = NOW()
+              WHERE code = $1 AND phone = $2 AND verified_at IS NULL AND consumed_at IS NULL AND expires_at > NOW()`,
+            ['TRV-' + m[1], sender]
+          );
+        }
+      }
+    }
+  } catch (e) {
+    console.error('whatsapp webhook error:', e);
+  }
+});
+
+// Manual approval (works with the normal WhatsApp Business app, no Meta developer account):
+// the user sends the prefilled message to your WhatsApp number; you see their number on the
+// message, then approve with the code AND the number you saw. Both must match the request.
+app.post('/recovery/approve', async (req, res) => {
+  const secret = req.headers['x-admin-secret'];
+  if (!process.env.ADMIN_SECRET || secret !== process.env.ADMIN_SECRET) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  const code = String((req.body && req.body.code) || '').toUpperCase().trim();
+  const phoneKey = normalizeKenyanPhone(sanitizePhone(req.body && req.body.phone));
+  if (!/^TRV-[A-HJ-NP-Z2-9]{6}$/.test(code) || !/^254[17]\d{8}$/.test(phoneKey)) {
+    return res.status(400).json({ error: 'code (TRV-XXXXXX) and the sender phone number are required' });
+  }
+  try {
+    const r = await pool.query(
+      `UPDATE phone_challenges SET verified_at = NOW()
+        WHERE code = $1 AND phone = $2 AND verified_at IS NULL AND consumed_at IS NULL AND expires_at > NOW()
+        RETURNING id`,
+      [code, phoneKey]
+    );
+    if (!r.rows[0]) return res.status(404).json({ error: 'No pending request matches that code and number (expired, wrong code, or wrong number).' });
+    return res.json({ ok: true });
+  } catch (e) {
+    console.error('recovery/approve error:', e);
+    return res.status(500).json({ error: 'Server error' });
   }
 });
 
