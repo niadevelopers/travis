@@ -85,6 +85,30 @@ const DEVICE_TOKEN_TTL_DAYS = 365; // how long a device stays registered
 const ACTIVATION_MODE = (process.env.ACTIVATION_MODE || 'free').toLowerCase() === 'paid' ? 'paid' : 'free';
 console.log(`ℹ️  Activation mode: ${ACTIVATION_MODE}`);
 
+
+// ====================== Billing / Entitlements ======================
+// PesaFlux credentials are intentionally read from the exact environment variable
+// names supplied for this deployment. Never expose these values to the frontend.
+const PESAFLUX_API_KEY = process.env.PESAFLUX_API_KEY || '';
+const PESAFLUX_EMAIL = process.env.PESAFLUX_EMAIL || '';
+const PESAFLUX_STK_URL = process.env.PESAFLUX_STK_URL || 'https://api.pesaflux.co.ke/v1/initiatestk';
+const PESAFLUX_STATUS_URL = process.env.PESAFLUX_STATUS_URL || 'https://api.pesaflux.co.ke/v1/transactionstatus';
+const PESAFLUX_WEBHOOK_SECRET = process.env.PESAFLUX_WEBHOOK_SECRET || '';
+const TRIAL_DURATION_MINUTES = Math.max(5, parseInt(process.env.TRIAL_DURATION_MINUTES, 10) || 30);
+const PERSONAL_PRICE_KES = 250;
+const BUSINESS_PRICE_KES = 500;
+const PAYMENT_CURRENCY = 'KES';
+
+function normalizeAccountType(value) {
+  return String(value || '').toLowerCase() === 'business' ? 'business' : 'personal';
+}
+function priceForAccountType(accountType) {
+  return normalizeAccountType(accountType) === 'business' ? BUSINESS_PRICE_KES : PERSONAL_PRICE_KES;
+}
+function remainingDue(price, paidAmount) {
+  return Math.max(0, Number(price) - Number(paidAmount || 0));
+}
+
 // ====================== WhatsApp ownership check (free, inbound-only) ======================
 // The user sends a short code TO our WhatsApp business number; Meta's webhook tells us which
 // number it came from. We never send a WhatsApp message, so there is nothing to pay for.
@@ -124,6 +148,35 @@ pool.query('SELECT NOW()')
         created_at TIMESTAMPTZ DEFAULT NOW()
       )
     `);
+
+    // Billing state is account-bound and evaluated with PostgreSQL NOW(), never a client clock.
+    await pool.query(`
+      ALTER TABLE users
+        ADD COLUMN IF NOT EXISTS account_type TEXT NOT NULL DEFAULT 'personal',
+        ADD COLUMN IF NOT EXISTS trial_started_at TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS trial_expires_at TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS paid_at TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS paid_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS subscription_status TEXT NOT NULL DEFAULT 'unpaid'
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS payment_transactions (
+        id BIGSERIAL PRIMARY KEY,
+        reference TEXT UNIQUE NOT NULL,
+        provider_request_id TEXT,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        account_type TEXT NOT NULL,
+        amount NUMERIC(12,2) NOT NULL,
+        currency TEXT NOT NULL DEFAULT 'KES',
+        status TEXT NOT NULL DEFAULT 'initiated',
+        provider_receipt TEXT,
+        provider_payload JSONB,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        completed_at TIMESTAMPTZ
+      )
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_payment_transactions_user ON payment_transactions(user_id, created_at DESC)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_payment_transactions_provider ON payment_transactions(provider_request_id)`);
 
     // Legacy table kept for backward compat / /lookup-fingerprint
     await pool.query(`
@@ -243,6 +296,81 @@ function normalizeKenyanPhone(phone) {
   return p;
 }
 
+
+async function entitlementForUser(userId) {
+  const r = await pool.query(
+    `SELECT id, phone, account_type, trial_started_at, trial_expires_at, paid_at,
+            paid_amount, subscription_status, NOW() AS server_now
+       FROM users WHERE id = $1`,
+    [userId]
+  );
+  const u = r.rows[0];
+  if (!u) return null;
+  const accountType = normalizeAccountType(u.account_type);
+  const price = priceForAccountType(accountType);
+  const paidAmount = Number(u.paid_amount || 0);
+  const paid = paidAmount >= price;
+  const trialActive = !paid && !!u.trial_expires_at && new Date(u.trial_expires_at).getTime() > new Date(u.server_now).getTime();
+  const trialStarted = !!u.trial_started_at;
+  const state = paid ? 'paid' : (trialActive ? 'trial' : (trialStarted ? 'expired' : 'not_started'));
+  return {
+    user_id: u.id,
+    account_type: accountType,
+    price_kes: price,
+    paid_amount: paidAmount,
+    amount_due_kes: remainingDue(price, paidAmount),
+    paid_at: u.paid_at,
+    subscription_status: paid ? 'paid' : (trialActive ? 'trial' : 'unpaid'),
+    trial_started_at: u.trial_started_at,
+    trial_expires_at: u.trial_expires_at,
+    server_now: u.server_now,
+    state,
+    entitled: paid || trialActive
+  };
+}
+
+async function requireEntitlement(req, res, next) {
+  try {
+    const entitlement = await entitlementForUser(req.user.id);
+    if (!entitlement) return res.status(401).json({ error: 'Account not found' });
+    req.entitlement = entitlement;
+    if (!entitlement.entitled) {
+      return res.status(402).json({
+        code: 'PAYWALL_REQUIRED',
+        error: 'A paid plan is required to use this feature.',
+        entitlement
+      });
+    }
+    return next();
+  } catch (e) {
+    console.error('entitlement check failed:', e);
+    return res.status(503).json({ error: 'Entitlement service temporarily unavailable' });
+  }
+}
+
+async function pesafluxPost(url, body) {
+  if (!PESAFLUX_API_KEY || !PESAFLUX_EMAIL) {
+    const err = new Error('PesaFlux is not configured: set PESAFLUX_API_KEY and PESAFLUX_EMAIL');
+    err.code = 'PESaflux_not_configured';
+    throw err;
+  }
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ api_key: PESAFLUX_API_KEY, email: PESAFLUX_EMAIL, ...body })
+  });
+  const raw = await response.text();
+  let data;
+  try { data = JSON.parse(raw); } catch (_) { data = { raw }; }
+  if (!response.ok) {
+    const err = new Error(`PesaFlux HTTP ${response.status}`);
+    err.provider = data;
+    throw err;
+  }
+  return data;
+}
+
+
 // device_id is 32 UPPERCASE hex chars. Uppercase on purpose: the client (and any
 // other client module) derives the code with fingerprint.substring(3, 11) and the
 // activation input is upper-cased before comparing, so the code must be uppercase.
@@ -317,6 +445,7 @@ const auth = (req, res, next) => {
 
 app.post('/register', authLimiter, async (req, res) => {
   const { fullName, location, phone, email, password } = req.body;
+  const accountType = normalizeAccountType(req.body && req.body.accountType);
   const sanitizedFullName = sanitizeText(fullName);
   const sanitizedLocation = sanitizeText(location);
   const sanitizedPhone = sanitizePhone(phone);
@@ -338,12 +467,14 @@ app.post('/register', authLimiter, async (req, res) => {
       return res.status(400).json({ error: 'Phone already registered' });
     }
     const hashed = await bcrypt.hash(sanitizedPassword, 10);
-    await pool.query(
+    const inserted = await pool.query(
       `INSERT INTO users (full_name, location, phone, email, password)
-       VALUES ($1, $2, $3, $4, $5)`,
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id`,
       [sanitizedFullName, sanitizedLocation, sanitizedPhone, email ? email.trim() : null, hashed]
     );
-    res.json({ message: 'Registered successfully' });
+    await pool.query('UPDATE users SET account_type = $1 WHERE id = $2', [accountType, inserted.rows[0].id]);
+    res.json({ message: 'Registered successfully', account_type: accountType });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'Server error' });
@@ -372,13 +503,16 @@ app.post('/login', authLimiter, async (req, res) => {
       process.env.JWT_SECRET,
       { expiresIn: '7d' }
     );
+    const entitlement = await entitlementForUser(user.id);
     return res.json({
       token,
+      entitlement,
       user: {
         fullName: user.full_name,
         phone: user.phone,
         successQueries: user.success_queries || 0,
-        failureQueries: user.failure_queries || 0
+        failureQueries: user.failure_queries || 0,
+        accountType: entitlement.account_type
       }
     });
   } catch (err) {
@@ -1034,7 +1168,144 @@ app.post('/lookup-fingerprint', async (req, res) => {
   }
 });
 
-app.get('/my-queries', auth, async (req, res) => {
+
+// ====================== Billing / Paywall ======================
+app.get('/billing/status', auth, async (req, res) => {
+  try {
+    const entitlement = await entitlementForUser(req.user.id);
+    if (!entitlement) return res.status(404).json({ error: 'Account not found' });
+    return res.json({ entitlement, prices: { personal: PERSONAL_PRICE_KES, business: BUSINESS_PRICE_KES, currency: PAYMENT_CURRENCY } });
+  } catch (e) {
+    console.error('billing/status error:', e);
+    return res.status(500).json({ error: 'Could not load billing status' });
+  }
+});
+
+app.post('/billing/trial/start', auth, recoveryLimiter, async (req, res) => {
+  try {
+    const entitlement = await entitlementForUser(req.user.id);
+    if (!entitlement) return res.status(404).json({ error: 'Account not found' });
+    if (entitlement.paid_amount >= entitlement.price_kes) return res.json({ entitlement });
+    const r = await pool.query(
+      `UPDATE users
+          SET trial_started_at = COALESCE(trial_started_at, NOW()),
+              trial_expires_at = COALESCE(trial_expires_at, NOW() + ($2 * INTERVAL '1 minute')),
+              subscription_status = CASE WHEN paid_amount >= $3 THEN 'paid' ELSE 'trial' END
+        WHERE id = $1
+        RETURNING id`,
+      [req.user.id, TRIAL_DURATION_MINUTES, entitlement.price_kes]
+    );
+    if (!r.rows[0]) return res.status(404).json({ error: 'Account not found' });
+    return res.status(201).json({ entitlement: await entitlementForUser(req.user.id) });
+  } catch (e) {
+    console.error('billing/trial/start error:', e);
+    return res.status(500).json({ error: 'Could not start trial' });
+  }
+});
+
+app.post('/billing/account-type', auth, authLimiter, async (req, res) => {
+  const requested = normalizeAccountType(req.body && req.body.accountType);
+  try {
+    const current = await entitlementForUser(req.user.id);
+    if (!current) return res.status(404).json({ error: 'Account not found' });
+    if (requested === current.account_type) return res.json({ entitlement: current, changed: false });
+    if (requested === 'personal') return res.status(400).json({ error: 'Business accounts cannot be downgraded here. Contact support.' });
+    await pool.query(
+      `UPDATE users SET account_type = 'business', trial_expires_at = CASE WHEN paid_amount < $2 THEN NOW() ELSE trial_expires_at END WHERE id = $1`,
+      [req.user.id, BUSINESS_PRICE_KES]
+    );
+    const entitlement = await entitlementForUser(req.user.id);
+    return res.json({
+      changed: true,
+      message: current.paid_amount > 0
+        ? 'Your existing personal payment remains credited. Only the remaining business upgrade balance is due; you are not charged twice.'
+        : 'Business pricing applies from this point. Start payment to unlock the business plan.',
+      entitlement
+    });
+  } catch (e) {
+    console.error('billing/account-type error:', e);
+    return res.status(500).json({ error: 'Could not change account type' });
+  }
+});
+
+app.post('/billing/pay', auth, authLimiter, async (req, res) => {
+  try {
+    const entitlement = await entitlementForUser(req.user.id);
+    if (!entitlement) return res.status(404).json({ error: 'Account not found' });
+    const amount = entitlement.amount_due_kes;
+    if (amount <= 0) return res.json({ already_paid: true, entitlement });
+    const reference = `TRV-${req.user.id}-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+    await pool.query(
+      `INSERT INTO payment_transactions (reference, user_id, account_type, amount, currency, status)
+       VALUES ($1, $2, $3, $4, $5, 'initiated')`,
+      [reference, req.user.id, entitlement.account_type, amount, PAYMENT_CURRENCY]
+    );
+    let provider;
+    try {
+      provider = await pesafluxPost(PESAFLUX_STK_URL, {
+        amount: String(amount),
+        msisdn: normalizeKenyanPhone(entitlement.phone),
+        reference
+      });
+    } catch (e) {
+      await pool.query(`UPDATE payment_transactions SET status = 'failed', provider_payload = $2 WHERE reference = $1`, [reference, JSON.stringify(e.provider || { error: e.message })]).catch(() => {});
+      return res.status(502).json({ code: 'PAYMENT_PROVIDER_ERROR', error: 'Could not start the M-Pesa payment. Please try again.' });
+    }
+    const providerRequestId = provider.transaction_request_id || provider.TransactionID || provider.CheckoutRequestID || null;
+    await pool.query(`UPDATE payment_transactions SET provider_request_id = $2, provider_payload = $3 WHERE reference = $1`, [reference, providerRequestId, JSON.stringify(provider)]);
+    return res.status(202).json({
+      payment_pending: true,
+      reference,
+      provider_request_id: providerRequestId,
+      amount_kes: amount,
+      currency: PAYMENT_CURRENCY,
+      message: 'A payment prompt has been sent to your M-Pesa number. Your account unlocks after server confirmation.'
+    });
+  } catch (e) {
+    console.error('billing/pay error:', e);
+    return res.status(500).json({ error: 'Could not initiate payment' });
+  }
+});
+
+app.get('/billing/payment/:reference', auth, async (req, res) => {
+  try {
+    const r = await pool.query(`SELECT reference, amount, currency, status, provider_request_id, provider_receipt, created_at, completed_at FROM payment_transactions WHERE reference = $1 AND user_id = $2`, [req.params.reference, req.user.id]);
+    if (!r.rows[0]) return res.status(404).json({ error: 'Payment not found' });
+    return res.json({ payment: r.rows[0], entitlement: await entitlementForUser(req.user.id) });
+  } catch (e) {
+    console.error('billing/payment status error:', e);
+    return res.status(500).json({ error: 'Could not load payment status' });
+  }
+});
+
+// PesaFlux webhook. Configure this URL in the PesaFlux dashboard.
+app.post('/webhooks/pesaflux', async (req, res) => {
+  if (PESAFLUX_WEBHOOK_SECRET && req.headers['x-pesaflux-webhook-secret'] !== PESAFLUX_WEBHOOK_SECRET) return res.sendStatus(401);
+  res.sendStatus(200); // acknowledge quickly; processing below is idempotent
+  try {
+    const p = req.body || {};
+    const responseCode = String(p.ResponseCode ?? p.responseCode ?? p.ResultCode ?? '');
+    const reference = String(p.TransactionReference || p.reference || '').trim();
+    const amount = Number(p.TransactionAmount ?? p.amount);
+    if (!reference || responseCode !== '0' || !Number.isFinite(amount)) return;
+    const tx = await pool.query(`SELECT * FROM payment_transactions WHERE reference = $1 FOR UPDATE`, [reference]);
+    const payment = tx.rows[0];
+    if (!payment || payment.status === 'completed' || Number(payment.amount) !== amount) return;
+    const updated = await pool.query(
+      `UPDATE payment_transactions SET status = 'completed', provider_receipt = $2, provider_payload = $3, completed_at = NOW() WHERE reference = $1 AND status <> 'completed' RETURNING user_id, amount`,
+      [reference, p.TransactionReceipt || null, JSON.stringify(p)]
+    );
+    if (!updated.rows[0]) return;
+    await pool.query(
+      `UPDATE users SET paid_amount = COALESCE(paid_amount, 0) + $2, paid_at = NOW(), subscription_status = 'paid' WHERE id = $1`,
+      [updated.rows[0].user_id, updated.rows[0].amount]
+    );
+  } catch (e) {
+    console.error('PesaFlux webhook error:', e);
+  }
+});
+
+app.get('/my-queries', auth, requireEntitlement, async (req, res) => {
   try {
     const logsRes = await pool.query(
       `SELECT target_phone, formatted_fp AS "formattedFP", receipt, queried_at AS "queriedAt"
@@ -1065,7 +1336,9 @@ app.get('/me', auth, async (req, res) => {
        FROM users WHERE id = $1`,
       [req.user.id]
     );
-    res.json(userRes.rows[0] || {});
+    const user = userRes.rows[0] || {};
+    user.entitlement = await entitlementForUser(req.user.id);
+    res.json(user);
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'Server error' });
@@ -1143,4 +1416,4 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
 
 // Exported for the future payment callback route (PesaFlux / Daraja).
-module.exports = { grantActivation, deriveActivationCode };
+module.exports = { grantActivation, deriveActivationCode, requireEntitlement, entitlementForUser };
