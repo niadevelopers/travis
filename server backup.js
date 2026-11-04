@@ -344,14 +344,58 @@ app.post('/register-device', deviceLimiter, async (req, res) => {
       [phoneKey]
     );
     if (existing.rows[0]) {
+      // ---- Recovery: same phone + the device_id this phone was issued ----------------
+      // The device_id is a 128-bit random secret that only this install (and its backup)
+      // holds, so presenting it proves ownership. We then keep the SAME device_id (so the
+      // activation code and restored data still match) and issue a fresh token, which
+      // supersedes any older copy of the token. A phone number alone is NOT enough.
+      const claimed = typeof req.body.fp === 'string' ? req.body.fp.trim().toUpperCase() : '';
+      const stored = String(existing.rows[0].device_id);
+      const proofOk = DEVICE_ID_RE.test(claimed) &&
+        crypto.timingSafeEqual(Buffer.from(claimed), Buffer.from(stored));
+
+      if (proofOk) {
+        const jti = crypto.randomBytes(16).toString('hex');
+        const expiresAt = new Date(Date.now() + DEVICE_TOKEN_TTL_DAYS * 86400 * 1000);
+        const token = jwt.sign(
+          { sub: stored, phone: phoneKey, jti, type: 'device' },
+          DEVICE_SIGNING_SECRET,
+          { expiresIn: `${DEVICE_TOKEN_TTL_DAYS}d` }
+        );
+        const upd = await pool.query(
+          `UPDATE devices
+              SET token_jti = $2, expires_at = $3, last_seen_at = NOW(), last_ip = $4, last_ua = $5
+            WHERE device_id = $1 AND phone = $6 AND revoked_at IS NULL
+            RETURNING activation_status`,
+          [stored, jti, expiresAt, ip, ua, phoneKey]
+        );
+        if (upd.rows[0]) {
+          await pool.query(
+            `INSERT INTO device_events (device_id, phone, event_type, success, reason, ip, ua)
+             VALUES ($1, $2, 'recover', TRUE, NULL, $3, $4)`,
+            [stored, phoneKey, ip, ua]
+          ).catch(() => {});
+          const status = upd.rows[0].activation_status;
+          const body = {
+            device_id: stored,
+            token,
+            activation_status: status,
+            recovered: true,
+            expires_at: expiresAt.toISOString()
+          };
+          if (status === 'active') body.activationCode = deriveActivationCode(stored);
+          return res.json(body);
+        }
+        // The device was revoked between the two queries: fall through to the refusal below.
+      }
+
       await pool.query(
         `INSERT INTO device_events (device_id, phone, event_type, success, reason, ip, ua)
-         VALUES ($1, $2, 'register', FALSE, 'phone_already_linked', $3, $4)`,
-        [existing.rows[0].device_id, phoneKey, ip, ua]
+         VALUES ($1, $2, 'register', FALSE, $3, $4, $5)`,
+        [stored, phoneKey, proofOk ? 'recover_raced' : 'phone_already_linked', ip, ua]
       ).catch(() => {});
       return res.status(409).json({
-        error: 'This phone number is already linked to a device. Restore your backup on that device, or contact support to move it.',
-        device_id_masked: existing.rows[0].device_id.substring(0, 6) + '…'
+        error: 'This phone number is already linked to a device. Restore your backup on that device, or contact support to move it.'
       });
     }
 
