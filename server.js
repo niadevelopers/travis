@@ -633,6 +633,7 @@ app.post('/register', authLimiter, async (req, res) => {
   const sanitizedFullName = sanitizeText(fullName);
   const sanitizedLocation = sanitizeText(location);
   const sanitizedPhone = sanitizePhone(phone);
+  const sanitizedEmail = email ? email.toString().trim().toLowerCase() : null;
   const sanitizedPassword = password ? password.toString().trim() : '';
 
   if (!sanitizedFullName || !sanitizedLocation || !sanitizedPhone || !sanitizedPassword) {
@@ -650,15 +651,27 @@ app.post('/register', authLimiter, async (req, res) => {
     if (existing.rows.length > 0) {
       return res.status(400).json({ error: 'Phone already registered' });
     }
+    if (sanitizedEmail) {
+      const emailExisting = await pool.query('SELECT id FROM users WHERE LOWER(email) = $1', [sanitizedEmail]);
+      if (emailExisting.rows.length > 0) {
+        return res.status(400).json({ error: 'Email already registered. Use another email or log in.' });
+      }
+    }
     const hashed = await bcrypt.hash(sanitizedPassword, 10);
     await pool.query(
       `INSERT INTO users (full_name, location, phone, email, password)
        VALUES ($1, $2, $3, $4, $5)`,
-      [sanitizedFullName, sanitizedLocation, sanitizedPhone, email ? email.trim() : null, hashed]
+      [sanitizedFullName, sanitizedLocation, sanitizedPhone, sanitizedEmail, hashed]
     );
     res.json({ message: 'Registered successfully' });
   } catch (e) {
     console.error(e);
+    if (e && e.code === '23505' && String(e.constraint || '').includes('users_email')) {
+      return res.status(400).json({ error: 'Email already registered. Use another email or log in.' });
+    }
+    if (e && e.code === '23505' && String(e.constraint || '').includes('users_phone')) {
+      return res.status(400).json({ error: 'Phone already registered' });
+    }
     res.status(500).json({ error: 'Server error' });
   }
 });
