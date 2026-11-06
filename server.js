@@ -526,6 +526,17 @@ async function reconcilePayment(p, force = false) {
   const j = (r && r.json) || {};
   const st = String(j.TransactionStatus || '').trim().toLowerCase();
 
+  // Safe diagnostic logging: never log API keys, passwords, or full phone numbers.
+  console.log('PesaFlux payment status:', {
+    payment_id: p.id,
+    kind: p.kind,
+    request_id: p.request_id,
+    provider_http_status: r && r.status,
+    provider_status: j.TransactionStatus || null,
+    provider_code: j.ResultCode || j.ResponseCode || j.response_code || null,
+    provider_message: j.ResponseDescription || j.ResponseMessage || j.message || null
+  });
+
   if (/^(completed?|success(ful)?)$/.test(st)) {
     const amount = Number(j.TransactionAmount);
     if (!(amount >= p.amount)) {
