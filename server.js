@@ -106,8 +106,8 @@ console.log(`ℹ️  WhatsApp verification: ${!WA_NUMBER ? 'NOT configured (set 
 
 // ====================== Premium: pricing, trial, payments (PesaFlux) ======================
 // PESAFLUX_API_KEY and PESAFLUX_EMAIL are read from the environment under exactly these names.
-const PRICE_PERSONAL = parseInt(process.env.PRICE_PERSONAL_KES, 10) || 250;     // KES
-const PRICE_BUSINESS = parseInt(process.env.PRICE_BUSINESS_KES, 10) || 500;     // KES
+const PRICE_PERSONAL = parseInt(process.env.PRICE_PERSONAL_KES, 10) || 2;     // KES
+const PRICE_BUSINESS = parseInt(process.env.PRICE_BUSINESS_KES, 10) || 4;     // KES
 const PREMIUM_PERIOD_DAYS = parseInt(process.env.PREMIUM_PERIOD_DAYS, 10) || 30; // how long one payment lasts
 const TRIAL_MINUTES = parseFloat(process.env.TRIAL_MINUTES) || 2;                // free mode length. TESTING = 2. PRODUCTION: change 2 to 30 (or set the TRIAL_MINUTES env var)
 const TRIAL_MAX_PER_IP_PER_DAY = parseInt(process.env.TRIAL_MAX_PER_IP_PER_DAY, 10) || 20;
