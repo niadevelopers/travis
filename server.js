@@ -716,7 +716,7 @@ async function bootstrapAffiliateTables() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS affiliates (
       id BIGSERIAL PRIMARY KEY,
-      user_id BIGINT UNIQUE,
+      user_id TEXT UNIQUE,
       phone TEXT NOT NULL UNIQUE,
       code TEXT NOT NULL UNIQUE,
       status TEXT NOT NULL DEFAULT 'pending',
@@ -729,6 +729,8 @@ async function bootstrapAffiliateTables() {
       CHECK (status IN ('pending','active','suspended'))
     )
   `);
+  // Migrate installations that previously created this column as BIGINT.
+  await pool.query(`ALTER TABLE affiliates ALTER COLUMN user_id TYPE TEXT USING user_id::text`);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS affiliate_referrals (
       phone TEXT PRIMARY KEY,
@@ -864,7 +866,7 @@ app.post('/affiliate/activate', authLimiter, auth, async (req, res) => {
       VALUES ($1, $2, $3, 'pending', $4, $5)
       ON CONFLICT (phone) DO UPDATE SET activation_payment_id = EXCLUDED.activation_payment_id,
         mpesa_msisdn = EXCLUDED.mpesa_msisdn, updated_at = NOW()
-    `, [user.rows[0].id, phone, code, id, msisdn]);
+    `, [String(user.rows[0].id), phone, code, id, msisdn]);
     await pool.query(`
       INSERT INTO trv_payments (id, phone, plan, kind, amount, msisdn, ip)
       VALUES ($1, $2, 'affiliate', 'affiliate_signup', $3, $4, $5)
