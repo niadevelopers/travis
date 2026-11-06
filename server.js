@@ -223,7 +223,7 @@ pool.query('SELECT NOW()')
     `);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_entitlements_trial_ip ON entitlements(trial_ip, trial_started_at)`);
     await pool.query(`
-      CREATE TABLE IF NOT EXISTS payments (
+      CREATE TABLE IF NOT EXISTS trv_payments (
         id              TEXT PRIMARY KEY,
         phone           TEXT NOT NULL,
         device_id       CHAR(32),
@@ -243,9 +243,9 @@ pool.query('SELECT NOW()')
         ip              TEXT
       )
     `);
-    await pool.query(`CREATE INDEX IF NOT EXISTS idx_payments_phone ON payments(phone, created_at DESC)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_trv_payments_phone ON trv_payments(phone, created_at DESC)`);
 
-    console.log('✅ tables ready (push_subscriptions, fingerprints, devices, device_events, phone_challenges, entitlements, payments)');
+    console.log('✅ tables ready (push_subscriptions, fingerprints, devices, device_events, phone_challenges, entitlements, trv_payments)');
   } catch (err) {
     console.error('❌ table bootstrap error:', err.message);
   }
@@ -413,13 +413,13 @@ function syncStoredStatus(row, state) {
 const maskPhone = (p) => (p && p.length >= 12 ? '0' + p.slice(3, 6) + ' ••• ' + p.slice(-3) : '');
 
 async function loadPayment(id) {
-  const r = await pool.query(`SELECT * FROM payments WHERE id = $1`, [id]);
+  const r = await pool.query(`SELECT * FROM trv_payments WHERE id = $1`, [id]);
   return r.rows[0] || null;
 }
 
 async function markPayment(id, status, reason) {
   await pool.query(
-    `UPDATE payments SET status = $2, failure_reason = $3, updated_at = NOW() WHERE id = $1 AND status <> 'paid'`,
+    `UPDATE trv_payments SET status = $2, failure_reason = $3, updated_at = NOW() WHERE id = $1 AND status <> 'paid'`,
     [id, status, reason || null]
   );
 }
@@ -450,7 +450,7 @@ async function settlePayment(p, receipt) {
     await client.query('BEGIN');
     const now = new Date();
     const upd = await client.query(
-      `UPDATE payments SET status = 'paid', paid_at = $2, applied_at = $2, updated_at = $2, receipt = $3, failure_reason = NULL
+      `UPDATE trv_payments SET status = 'paid', paid_at = $2, applied_at = $2, updated_at = $2, receipt = $3, failure_reason = NULL
         WHERE id = $1 AND status <> 'paid' RETURNING *`,
       [p.id, now, receipt]
     );
@@ -505,7 +505,7 @@ async function reconcilePayment(p, force = false) {
   const ageMs = Date.now() - new Date(p.created_at).getTime();
   if (ageMs > 24 * 3600 * 1000) return p;
   if (!force && p.last_checked_at && Date.now() - new Date(p.last_checked_at).getTime() < 4000) return p;
-  await pool.query(`UPDATE payments SET last_checked_at = NOW() WHERE id = $1`, [p.id]);
+  await pool.query(`UPDATE trv_payments SET last_checked_at = NOW() WHERE id = $1`, [p.id]);
 
   let r;
   try {
@@ -541,7 +541,7 @@ async function reconcilePayment(p, force = false) {
 // Latest unsettled payment for a phone (checked against PesaFlux, so a delayed callback never matters).
 async function refreshPendingPayment(phone) {
   const r = await pool.query(
-    `SELECT * FROM payments WHERE phone = $1 AND status IN ('pending','expired') AND created_at > $2
+    `SELECT * FROM trv_payments WHERE phone = $1 AND status IN ('pending','expired') AND created_at > $2
       ORDER BY created_at DESC LIMIT 1`,
     [phone, new Date(Date.now() - 24 * 3600 * 1000)]
   );
@@ -1018,7 +1018,7 @@ app.post('/pay/checkout', payLimiter, deviceAuth, async (req, res) => {
 
     // Don't fire a second prompt while one is still open for the same thing.
     const open = await pool.query(
-      `SELECT * FROM payments WHERE phone = $1 AND status = 'pending' AND plan = $2 AND kind = $3 AND amount = $4 AND created_at > $5
+      `SELECT * FROM trv_payments WHERE phone = $1 AND status = 'pending' AND plan = $2 AND kind = $3 AND amount = $4 AND created_at > $5
         ORDER BY created_at DESC LIMIT 1`,
       [phone, type, price.kind, price.amount, new Date(Date.now() - 3 * 60 * 1000)]
     );
@@ -1028,7 +1028,7 @@ app.post('/pay/checkout', payLimiter, deviceAuth, async (req, res) => {
 
     const id = 'TRVPAY' + crypto.randomBytes(5).toString('hex').toUpperCase();
     await pool.query(
-      `INSERT INTO payments (id, phone, device_id, plan, kind, amount, msisdn, ip) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      `INSERT INTO trv_payments (id, phone, device_id, plan, kind, amount, msisdn, ip) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
       [id, phone, req.device.device_id, type, price.kind, price.amount, msisdn, req.ip]
     );
     let r;
@@ -1045,7 +1045,7 @@ app.post('/pay/checkout', payLimiter, deviceAuth, async (req, res) => {
       await markPayment(id, 'failed', 'provider_rejected');
       return res.status(502).json({ code: 'PAYMENT_PROVIDER_ERROR', error: 'Could not start the M-Pesa prompt. Check the number and try again.' });
     }
-    await pool.query(`UPDATE payments SET request_id = $2, updated_at = NOW() WHERE id = $1`, [id, String(j.transaction_request_id)]);
+    await pool.query(`UPDATE trv_payments SET request_id = $2, updated_at = NOW() WHERE id = $1`, [id, String(j.transaction_request_id)]);
     return res.json({ payment_id: id, status: 'pending', amount: price.amount, kind: price.kind, plan: type });
   } catch (e) {
     console.error('pay/checkout error:', e);
