@@ -532,9 +532,10 @@ async function reconcilePayment(p, force = false) {
     kind: p.kind,
     request_id: p.request_id,
     provider_http_status: r && r.status,
-    provider_status: j.TransactionStatus || null,
-    provider_code: j.ResultCode || j.ResponseCode || j.response_code || null,
-    provider_message: j.ResponseDescription || j.ResponseMessage || j.message || null
+    provider_result_code: j.ResultCode || j.ResponseCode || j.response_code || null,
+    transaction_status: j.TransactionStatus || null,
+    transaction_code: j.TransactionCode || null,
+    result_description: j.ResultDesc || j.ResponseDescription || j.ResponseMessage || j.message || null
   });
 
   if (/^(completed?|success(ful)?)$/.test(st)) {
@@ -548,7 +549,16 @@ async function reconcilePayment(p, force = false) {
     return (await settlePayment(p, receipt)) || p;
   }
   if (/fail|cancel|reject|timeout|expire|insufficient|declin/.test(st)) {
-    await markPayment(p.id, 'failed', st.slice(0, 60));
+    // ResultCode 200 means the status lookup succeeded; it is not the payment result.
+    // Prefer the transaction-specific code/description so the UI can explain the failure.
+    const transactionCode = String(j.TransactionCode || '').trim();
+    const transactionDescription = String(
+      j.ResultDesc || j.ResponseDescription || j.ResponseMessage || j.message || ''
+    ).trim();
+    const reason = transactionCode && transactionDescription
+      ? `${transactionCode}: ${transactionDescription}`
+      : transactionCode || transactionDescription || st.slice(0, 60);
+    await markPayment(p.id, 'failed', reason.slice(0, 120));
     return await loadPayment(p.id);
   }
   if (p.status === 'pending' && ageMs > PAYMENT_PENDING_MAX_MS) {
@@ -879,7 +889,11 @@ app.post('/affiliate/activate', authLimiter, auth, async (req, res) => {
     const existing = await pool.query('SELECT * FROM affiliates WHERE phone = $1', [phone]);
     if (existing.rows[0] && existing.rows[0].status === 'active') return res.status(409).json({ code: 'ALREADY_AFFILIATE', affiliate: existing.rows[0] });
     if (existing.rows[0] && existing.rows[0].activation_payment_id) {
-      return res.json({ payment_id: existing.rows[0].activation_payment_id, status: 'pending' });
+      const previousPayment = await loadPayment(existing.rows[0].activation_payment_id);
+      if (previousPayment && previousPayment.status === 'pending') {
+        return res.json({ payment_id: previousPayment.id, status: 'pending' });
+      }
+      // Failed, expired, or missing activation payments may be retried with a new ID.
     }
     const user = await pool.query('SELECT id FROM users WHERE phone = $1', [phone]);
     if (!user.rows[0]) return res.status(401).json({ error: 'Account not found.' });
