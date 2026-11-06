@@ -109,7 +109,7 @@ console.log(`ℹ️  WhatsApp verification: ${!WA_NUMBER ? 'NOT configured (set 
 const PRICE_PERSONAL = parseInt(process.env.PRICE_PERSONAL_KES, 10) || 250;     // KES
 const PRICE_BUSINESS = parseInt(process.env.PRICE_BUSINESS_KES, 10) || 500;     // KES
 const PREMIUM_PERIOD_DAYS = parseInt(process.env.PREMIUM_PERIOD_DAYS, 10) || 30; // how long one payment lasts
-const TRIAL_MINUTES = parseFloat(process.env.TRIAL_MINUTES) || 2;               // free mode length
+const TRIAL_MINUTES = parseFloat(process.env.TRIAL_MINUTES) || 2;                // free mode length. TESTING = 2. PRODUCTION: change 2 to 30 (or set the TRIAL_MINUTES env var)
 const TRIAL_MAX_PER_IP_PER_DAY = parseInt(process.env.TRIAL_MAX_PER_IP_PER_DAY, 10) || 20;
 const PESAFLUX_BASE_URL = (process.env.PESAFLUX_BASE_URL || 'https://api.pesaflux.co.ke').replace(/\/+$/, '');
 const PAYMENT_PENDING_MAX_MS = 10 * 60 * 1000;   // an unanswered M-Pesa prompt is treated as expired after this
@@ -1514,7 +1514,8 @@ app.get('/vapid-public-key', (req, res) => {
   res.json({ key: process.env.VAPID_PUBLIC_KEY });
 });
 
-app.post('/subscribe', deviceAuth, requireEntitlement, async (req, res) => {
+// Reminders are open to every app user (paid, trial or expired) exactly as before premium: they are retention, not a premium feature.
+app.post('/subscribe', async (req, res) => {
   const sub = req.body;
   if (!sub || !sub.endpoint || !sub.keys || !sub.keys.p256dh || !sub.keys.auth) {
     return res.status(400).json({ error: 'Invalid subscription' });
