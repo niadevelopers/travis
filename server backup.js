@@ -20,6 +20,7 @@ app.use(cors({
 }));
 
 app.use(express.json({ verify: (req, res, buf) => { req.rawBody = buf; } }));
+app.use(express.urlencoded({ extended: false }));
 app.use(express.static(__dirname));
 
 const authLimiter = rateLimit({
@@ -45,6 +46,10 @@ const verifyLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
+
+const trialLimiter = rateLimit({ windowMs: 60 * 1000, max: 10, standardHeaders: true, legacyHeaders: false });
+const payLimiter = rateLimit({ windowMs: 60 * 1000, max: 10, standardHeaders: true, legacyHeaders: false });
+const callbackLimiter = rateLimit({ windowMs: 60 * 1000, max: 60, standardHeaders: true, legacyHeaders: false });
 
 const adminLimiter = rateLimit({
   windowMs: 60 * 1000,
@@ -99,10 +104,21 @@ const WA_APP_SECRET = process.env.WHATSAPP_APP_SECRET || '';
 const RECOVERY_TTL_MIN = parseInt(process.env.RECOVERY_TTL_MINUTES, 10) || (WA_APP_SECRET ? 10 : 60);
 console.log(`ℹ️  WhatsApp verification: ${!WA_NUMBER ? 'NOT configured (set WHATSAPP_BUSINESS_NUMBER)' : WA_APP_SECRET ? 'automatic (webhook)' : 'manual approval only (no WHATSAPP_APP_SECRET)'}`);
 
+// ====================== Premium: pricing, trial, payments (PesaFlux) ======================
+// PESAFLUX_API_KEY and PESAFLUX_EMAIL are read from the environment under exactly these names.
+const PRICE_PERSONAL = parseInt(process.env.PRICE_PERSONAL_KES, 10) || 2;     // KES
+const PRICE_BUSINESS = parseInt(process.env.PRICE_BUSINESS_KES, 10) || 4;     // KES
+const PREMIUM_PERIOD_DAYS = parseInt(process.env.PREMIUM_PERIOD_DAYS, 10) || 30; // how long one payment lasts
+const TRIAL_MINUTES = parseFloat(process.env.TRIAL_MINUTES) || 2;                // free mode length. TESTING = 2. PRODUCTION: change 2 to 30 (or set the TRIAL_MINUTES env var)
+const TRIAL_MAX_PER_IP_PER_DAY = parseInt(process.env.TRIAL_MAX_PER_IP_PER_DAY, 10) || 20;
+const PESAFLUX_BASE_URL = (process.env.PESAFLUX_BASE_URL || 'https://api.pesaflux.co.ke').replace(/\/+$/, '');
+const PAYMENT_PENDING_MAX_MS = 10 * 60 * 1000;   // an unanswered M-Pesa prompt is treated as expired after this
+console.log(`ℹ️  Premium: personal KES ${PRICE_PERSONAL}, business KES ${PRICE_BUSINESS}, ${PREMIUM_PERIOD_DAYS} days per payment, trial ${TRIAL_MINUTES} min, PesaFlux ${process.env.PESAFLUX_API_KEY && process.env.PESAFLUX_EMAIL ? 'configured' : 'NOT configured (set PESAFLUX_API_KEY and PESAFLUX_EMAIL)'}`);
+
 // ====================== Supabase Postgres Connection Pool ======================
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
+  ssl: process.env.DATABASE_SSL === 'false' ? false : { rejectUnauthorized: false },
   max: 10,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 15000
@@ -189,7 +205,47 @@ pool.query('SELECT NOW()')
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_phone_challenges_code ON phone_challenges(code)`);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_phone_challenges_phone ON phone_challenges(phone, created_at DESC)`);
 
-    console.log('✅ tables ready (push_subscriptions, fingerprints, devices, device_events, phone_challenges)');
+    // Premium. Keyed by PHONE (not device) so reinstalling or re-registering never resets a trial
+    // and a payment follows the account.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS entitlements (
+        phone               TEXT PRIMARY KEY,
+        trial_started_at    TIMESTAMPTZ,
+        trial_expires_at    TIMESTAMPTZ,
+        paid_at             TIMESTAMPTZ,
+        paid_until          TIMESTAMPTZ,
+        plan                TEXT,
+        subscription_status TEXT NOT NULL DEFAULT 'none',
+        trial_device_id     CHAR(32),
+        trial_ip            TEXT,
+        updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_entitlements_trial_ip ON entitlements(trial_ip, trial_started_at)`);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS trv_payments (
+        id              TEXT PRIMARY KEY,
+        phone           TEXT NOT NULL,
+        device_id       CHAR(32),
+        plan            TEXT NOT NULL,
+        kind            TEXT NOT NULL,
+        amount          INTEGER NOT NULL,
+        msisdn          TEXT NOT NULL,
+        status          TEXT NOT NULL DEFAULT 'pending',
+        request_id      TEXT,
+        receipt         TEXT UNIQUE,
+        failure_reason  TEXT,
+        created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        paid_at         TIMESTAMPTZ,
+        applied_at      TIMESTAMPTZ,
+        last_checked_at TIMESTAMPTZ,
+        ip              TEXT
+      )
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_trv_payments_phone ON trv_payments(phone, created_at DESC)`);
+
+    console.log('✅ tables ready (push_subscriptions, fingerprints, devices, device_events, phone_challenges, entitlements, trv_payments)');
   } catch (err) {
     console.error('❌ table bootstrap error:', err.message);
   }
@@ -295,6 +351,243 @@ async function rotateDeviceToken(deviceId, phoneKey, ip, ua) {
   };
   if (status === 'active') body.activationCode = deriveActivationCode(deviceId);
   return body;
+}
+
+// ====================== Premium: entitlement logic ======================
+const planPrice = (type) => (type === 'business' ? PRICE_BUSINESS : PRICE_PERSONAL);
+const cleanType = (t) => (t === 'business' ? 'business' : 'personal');
+
+// The single source of truth for "may this phone use premium right now?". Uses SERVER time only.
+function computeEntitlement(row, accountType, now = new Date()) {
+  const type = cleanType(accountType);
+  const paidUntil = row && row.paid_until ? new Date(row.paid_until) : null;
+  const trialEnd = row && row.trial_expires_at ? new Date(row.trial_expires_at) : null;
+  const paidActive = !!paidUntil && paidUntil > now;
+  const trialActive = !!trialEnd && trialEnd > now;
+  const used = !!(row && (row.trial_started_at || row.paid_at));   // has chosen trial or paid before
+  const out = {
+    state: 'none', plan: null, needs: 'pay', account_type: type, currency: 'KES',
+    server_now: now.toISOString(),
+    trial_expires_at: trialEnd ? trialEnd.toISOString() : null,
+    paid_until: paidUntil ? paidUntil.toISOString() : null,
+    remaining_ms: 0,
+    trial_minutes: TRIAL_MINUTES, period_days: PREMIUM_PERIOD_DAYS,
+    price: { amount: planPrice(type), kind: 'full', credit: 0 }
+  };
+  if (paidActive) {
+    out.state = 'paid';
+    out.plan = row.plan;
+    out.remaining_ms = paidUntil - now;
+    if (row.plan === 'business' || type === 'personal') {
+      out.needs = 'ok';
+      out.price = null;
+    } else {
+      // Paid for Personal, now running as Business: charge only the difference for the SAME period.
+      out.needs = 'upgrade';
+      out.price = { amount: Math.max(0, PRICE_BUSINESS - PRICE_PERSONAL), kind: 'upgrade', credit: PRICE_PERSONAL };
+    }
+  } else if (trialActive) {
+    out.state = 'trial';
+    out.needs = 'ok';
+    out.remaining_ms = trialEnd - now;
+  } else if (used) {
+    out.state = 'expired';
+  }
+  return out;
+}
+
+const STATUS_FOR_STATE = { none: 'none', trial: 'trialing', paid: 'active', expired: 'expired' };
+
+async function loadEntitlement(phone) {
+  const r = await pool.query(`SELECT * FROM entitlements WHERE phone = $1`, [phone]);
+  return r.rows[0] || null;
+}
+
+// Cheap tidy-up so the stored subscription_status follows the real state (reporting only; never trusted).
+function syncStoredStatus(row, state) {
+  if (row && row.subscription_status !== STATUS_FOR_STATE[state]) {
+    pool.query(`UPDATE entitlements SET subscription_status = $2 WHERE phone = $1`, [row.phone, STATUS_FOR_STATE[state]]).catch(() => {});
+  }
+}
+
+const maskPhone = (p) => (p && p.length >= 12 ? '0' + p.slice(3, 6) + ' ••• ' + p.slice(-3) : '');
+
+async function loadPayment(id) {
+  const r = await pool.query(`SELECT * FROM trv_payments WHERE id = $1`, [id]);
+  return r.rows[0] || null;
+}
+
+async function markPayment(id, status, reason) {
+  await pool.query(
+    `UPDATE trv_payments SET status = $2, failure_reason = $3, updated_at = NOW() WHERE id = $1 AND status <> 'paid'`,
+    [id, status, reason || null]
+  );
+}
+
+async function pesafluxCall(path, body) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 20000);
+  try {
+    const res = await fetch(PESAFLUX_BASE_URL + path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ api_key: process.env.PESAFLUX_API_KEY, email: process.env.PESAFLUX_EMAIL, ...body }),
+      signal: ctrl.signal
+    });
+    let json = null;
+    try { json = await res.json(); } catch (e) { /* non-JSON body */ }
+    return { status: res.status, json };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Grant access for a verified payment. One transaction, safe to run twice: the UPDATE ... WHERE
+// status <> 'paid' lets exactly one caller through, so a replayed callback can never extend access twice.
+async function settlePayment(p, receipt) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const now = new Date();
+    const upd = await client.query(
+      `UPDATE trv_payments SET status = 'paid', paid_at = $2, applied_at = $2, updated_at = $2, receipt = $3, failure_reason = NULL
+        WHERE id = $1 AND status <> 'paid' RETURNING *`,
+      [p.id, now, receipt]
+    );
+    if (!upd.rows[0]) { await client.query('ROLLBACK'); return await loadPayment(p.id); }
+    const row = upd.rows[0];
+    const until = new Date(now.getTime() + PREMIUM_PERIOD_DAYS * 86400 * 1000);
+    if (row.kind === 'upgrade') {
+      const u = await client.query(
+        `UPDATE entitlements
+            SET plan = 'business', paid_at = $2, subscription_status = 'active', updated_at = $2,
+                paid_until = CASE WHEN paid_until > $2 THEN paid_until ELSE $3 END
+          WHERE phone = $1`,
+        [row.phone, now, until]
+      );
+      if (u.rowCount === 0) {
+        await client.query(
+          `INSERT INTO entitlements (phone, plan, paid_at, paid_until, subscription_status, updated_at)
+           VALUES ($1, 'business', $2, $3, 'active', $2)`,
+          [row.phone, now, until]
+        );
+      }
+    } else {
+      await client.query(
+        `INSERT INTO entitlements (phone, plan, paid_at, paid_until, subscription_status, updated_at)
+         VALUES ($1, $2, $3, $4, 'active', $3)
+         ON CONFLICT (phone) DO UPDATE SET
+           plan = EXCLUDED.plan, paid_at = EXCLUDED.paid_at, subscription_status = 'active', updated_at = EXCLUDED.updated_at,
+           paid_until = CASE WHEN entitlements.paid_until > EXCLUDED.paid_at THEN entitlements.paid_until ELSE EXCLUDED.paid_until END`,
+        [row.phone, row.plan, now, until]
+      );
+    }
+    await client.query('COMMIT');
+    return row;
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    if (e.code === '23505') {   // this M-Pesa receipt was already used for another payment
+      console.error('payment receipt reused:', p.id);
+      await markPayment(p.id, 'failed', 'receipt_reused');
+      return await loadPayment(p.id);
+    }
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+// Ask PesaFlux (server to server, with our API key) what really happened. Callbacks are NOT
+// signed, so nothing in a callback is ever trusted: it only tells us to go and check.
+// Fail-closed: access is granted only on a clearly completed payment of at least the right amount.
+async function reconcilePayment(p, force = false) {
+  if (!p || p.status === 'paid' || !p.request_id) return p;
+  const ageMs = Date.now() - new Date(p.created_at).getTime();
+  if (ageMs > 24 * 3600 * 1000) return p;
+  if (!force && p.last_checked_at && Date.now() - new Date(p.last_checked_at).getTime() < 4000) return p;
+  await pool.query(`UPDATE trv_payments SET last_checked_at = NOW() WHERE id = $1`, [p.id]);
+
+  let r;
+  try {
+    r = await pesafluxCall('/v1/transactionstatus', { transaction_request_id: p.request_id });
+  } catch (e) {
+    console.error('pesaflux status error:', e.message);
+    return p;
+  }
+  const j = (r && r.json) || {};
+  const st = String(j.TransactionStatus || '').trim().toLowerCase();
+
+  if (/^(completed?|success(ful)?)$/.test(st)) {
+    const amount = Number(j.TransactionAmount);
+    if (!(amount >= p.amount)) {
+      console.error('payment amount mismatch:', p.id, 'expected', p.amount, 'got', j.TransactionAmount);
+      await markPayment(p.id, 'failed', 'amount_mismatch');
+      return await loadPayment(p.id);
+    }
+    const receipt = String(j.TransactionReceipt || j.TransactionID || p.request_id).trim();
+    return (await settlePayment(p, receipt)) || p;
+  }
+  if (/fail|cancel|reject|timeout|expire|insufficient|declin/.test(st)) {
+    await markPayment(p.id, 'failed', st.slice(0, 60));
+    return await loadPayment(p.id);
+  }
+  if (p.status === 'pending' && ageMs > PAYMENT_PENDING_MAX_MS) {
+    await markPayment(p.id, 'expired', 'no_response');   // can still be settled later if the money did arrive
+    return await loadPayment(p.id);
+  }
+  return p;
+}
+
+// Latest unsettled payment for a phone (checked against PesaFlux, so a delayed callback never matters).
+async function refreshPendingPayment(phone) {
+  const r = await pool.query(
+    `SELECT * FROM trv_payments WHERE phone = $1 AND status IN ('pending','expired') AND created_at > $2
+      ORDER BY created_at DESC LIMIT 1`,
+    [phone, new Date(Date.now() - 24 * 3600 * 1000)]
+  );
+  return r.rows[0] ? await reconcilePayment(r.rows[0]) : null;
+}
+
+// ---- Guards ----
+// deviceAuth: who is calling? The app sends its device id + server-signed token as headers
+// (added in one place by the frontend's fetch wrapper). Same checks as /verify-device.
+async function deviceAuth(req, res, next) {
+  const fp = String(req.headers['x-trv-fp'] || '');
+  const token = String(req.headers['x-trv-token'] || '');
+  const fail = (reason) => res.status(401).json({ code: 'DEVICE_UNVERIFIED', reason });
+  try {
+    if (!DEVICE_ID_RE.test(fp) || !token) return fail('missing');
+    let decoded;
+    try { decoded = jwt.verify(token, DEVICE_SIGNING_SECRET); } catch (e) { return fail('bad_token'); }
+    if (decoded.type !== 'device' || decoded.sub !== fp || !decoded.jti) return fail('bad_token');
+    const r = await pool.query(
+      `SELECT device_id, phone, token_jti, revoked_at, expires_at FROM devices WHERE device_id = $1`, [fp]);
+    const dev = r.rows[0];
+    if (!dev || dev.revoked_at || dev.token_jti !== decoded.jti || new Date(dev.expires_at) < new Date()) return fail('not_live');
+    req.device = { device_id: String(dev.device_id), phone: dev.phone };
+    return next();
+  } catch (e) {
+    console.error('deviceAuth error:', e);
+    return res.status(500).json({ error: 'Server error' });
+  }
+}
+
+// requireEntitlement: put AFTER deviceAuth on any privileged route.
+//   app.post('/something', deviceAuth, requireEntitlement, handler)
+// Rejects with HTTP 402 and code PAYWALL_REQUIRED unless the phone is in a live trial or paid period.
+async function requireEntitlement(req, res, next) {
+  try {
+    const row = await loadEntitlement(req.device.phone);
+    const ent = computeEntitlement(row, null);
+    if (ent.state === 'trial' || ent.state === 'paid') { req.entitlement = ent; return next(); }
+    return res.status(402).json({
+      code: 'PAYWALL_REQUIRED', state: ent.state, needs: ent.needs,
+      error: ent.state === 'none' ? 'Choose Pay Now or Free Mode to continue.' : 'Your free time has ended. Payment is required to continue.'
+    });
+  } catch (e) {
+    console.error('requireEntitlement error:', e);
+    return res.status(500).json({ error: 'Server error' });
+  }
 }
 
 // ====================== Auth Middleware ======================
@@ -645,6 +938,150 @@ app.post('/verify-device', verifyLimiter, async (req, res) => {
     console.error('verify-device error:', e);
     await event(false, 'server_error');
     return res.status(500).json({ valid: false, reason: 'server_error' });
+  }
+});
+
+// ====================== Premium routes ======================
+
+// Where does this phone stand? Called by the app after boot, on resume, and when a trial ends.
+app.post('/entitlement', verifyLimiter, deviceAuth, async (req, res) => {
+  try {
+    const phone = req.device.phone;
+    let pending = await refreshPendingPayment(phone);
+    const row = await loadEntitlement(phone);
+    const ent = computeEntitlement(row, req.body && req.body.account_type);
+    syncStoredStatus(row, ent.state);
+    ent.phone_masked = maskPhone(phone);
+    ent.pending_payment = pending && pending.status === 'pending' ? { id: pending.id, amount: pending.amount, kind: pending.kind } : null;
+    return res.json(ent);
+  } catch (e) {
+    console.error('entitlement error:', e);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Start the one free trial for this phone. Idempotent: calling again (reinstall, cleared storage,
+// a different phone model) returns the SAME trial; it can never be restarted or extended.
+app.post('/trial/start', trialLimiter, deviceAuth, async (req, res) => {
+  try {
+    const phone = req.device.phone;
+    const existing = await loadEntitlement(phone);
+    if (!existing) {
+      const since = new Date(Date.now() - 24 * 3600 * 1000);
+      const c = await pool.query(
+        `SELECT COUNT(*)::int AS n FROM entitlements WHERE trial_ip = $1 AND trial_started_at > $2`, [req.ip, since]);
+      if (c.rows[0].n >= TRIAL_MAX_PER_IP_PER_DAY) {
+        return res.status(429).json({ code: 'TRIAL_LIMIT', error: 'Free mode is not available from this connection right now. You can pay to continue.' });
+      }
+      const now = new Date();
+      const end = new Date(now.getTime() + TRIAL_MINUTES * 60 * 1000);
+      await pool.query(
+        `INSERT INTO entitlements (phone, trial_started_at, trial_expires_at, subscription_status, trial_device_id, trial_ip, updated_at)
+         VALUES ($1, $2, $3, 'trialing', $4, $5, $2)
+         ON CONFLICT (phone) DO NOTHING`,
+        [phone, now, end, req.device.device_id, req.ip]
+      );
+      await pool.query(
+        `INSERT INTO device_events (device_id, phone, event_type, success, ip, ua) VALUES ($1, $2, 'trial', TRUE, $3, $4)`,
+        [req.device.device_id, phone, req.ip, (req.headers['user-agent'] || '').substring(0, 500)]
+      ).catch(() => {});
+    }
+    const row = await loadEntitlement(phone);
+    const ent = computeEntitlement(row, req.body && req.body.account_type);
+    ent.phone_masked = maskPhone(phone);
+    return res.json(ent);
+  } catch (e) {
+    console.error('trial/start error:', e);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Send the M-Pesa prompt (STK push) through PesaFlux. The server decides the price; the app's claim
+// is only which account type it is running as.
+app.post('/pay/checkout', payLimiter, deviceAuth, async (req, res) => {
+  if (!process.env.PESAFLUX_API_KEY || !process.env.PESAFLUX_EMAIL) {
+    return res.status(503).json({ code: 'PAYMENTS_NOT_CONFIGURED', error: 'Payments are not available right now. Please contact support.' });
+  }
+  try {
+    const phone = req.device.phone;
+    const type = cleanType(req.body && req.body.account_type);
+    await refreshPendingPayment(phone);   // a payment that completed a moment ago must count first
+    const row = await loadEntitlement(phone);
+    const ent = computeEntitlement(row, type);
+    if (ent.needs === 'ok' && ent.state === 'paid') {
+      return res.status(409).json({ code: 'ALREADY_PAID', error: 'Your plan is already paid.', entitlement: ent });
+    }
+    const price = ent.price;                                   // 'full' or 'upgrade'
+    const msisdnRaw = req.body && req.body.msisdn ? sanitizePhone(req.body.msisdn) : phone;
+    if (!isValidKenyanPhone(msisdnRaw)) return res.status(400).json({ error: 'Enter a valid Safaricom M-Pesa number.' });
+    const msisdn = normalizeKenyanPhone(msisdnRaw);
+
+    // Don't fire a second prompt while one is still open for the same thing.
+    const open = await pool.query(
+      `SELECT * FROM trv_payments WHERE phone = $1 AND status = 'pending' AND plan = $2 AND kind = $3 AND amount = $4 AND created_at > $5
+        ORDER BY created_at DESC LIMIT 1`,
+      [phone, type, price.kind, price.amount, new Date(Date.now() - 3 * 60 * 1000)]
+    );
+    if (open.rows[0]) {
+      return res.json({ payment_id: open.rows[0].id, status: 'pending', amount: price.amount, kind: price.kind, plan: type, reused: true });
+    }
+
+    const id = 'TRVPAY' + crypto.randomBytes(5).toString('hex').toUpperCase();
+    await pool.query(
+      `INSERT INTO trv_payments (id, phone, device_id, plan, kind, amount, msisdn, ip) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [id, phone, req.device.device_id, type, price.kind, price.amount, msisdn, req.ip]
+    );
+    let r;
+    try {
+      r = await pesafluxCall('/v1/initiatestk', { amount: price.amount, msisdn, reference: id });
+    } catch (e) {
+      console.error('pesaflux initiate error:', e.message);
+      await markPayment(id, 'failed', 'provider_unreachable');
+      return res.status(502).json({ code: 'PAYMENT_PROVIDER_ERROR', error: 'Could not reach M-Pesa. Please try again.' });
+    }
+    const j = (r && r.json) || {};
+    if (String(j.success) !== '200' || !j.transaction_request_id) {
+      console.error('pesaflux initiate rejected:', r && r.status, JSON.stringify(j).slice(0, 200));
+      await markPayment(id, 'failed', 'provider_rejected');
+      return res.status(502).json({ code: 'PAYMENT_PROVIDER_ERROR', error: 'Could not start the M-Pesa prompt. Check the number and try again.' });
+    }
+    await pool.query(`UPDATE trv_payments SET request_id = $2, updated_at = NOW() WHERE id = $1`, [id, String(j.transaction_request_id)]);
+    return res.json({ payment_id: id, status: 'pending', amount: price.amount, kind: price.kind, plan: type });
+  } catch (e) {
+    console.error('pay/checkout error:', e);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// The app asks "did it go through?". Works with or without the callback arriving.
+app.post('/pay/status', verifyLimiter, deviceAuth, async (req, res) => {
+  try {
+    const id = String((req.body && req.body.payment_id) || '');
+    let p = await loadPayment(id);
+    if (!p || p.phone !== req.device.phone) return res.status(404).json({ status: 'unknown' });
+    p = await reconcilePayment(p);
+    const row = await loadEntitlement(req.device.phone);
+    const ent = computeEntitlement(row, req.body && req.body.account_type);
+    ent.phone_masked = maskPhone(req.device.phone);
+    return res.json({ status: p.status, failure_reason: p.status === 'failed' ? p.failure_reason : null, entitlement: ent });
+  } catch (e) {
+    console.error('pay/status error:', e);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// PesaFlux webhook. Unsigned, so we only use it as a nudge: find OUR payment by the reference we
+// sent, then verify with PesaFlux directly. Unknown references are ignored without any outbound call.
+app.post('/pay/callback', callbackLimiter, async (req, res) => {
+  res.status(200).json({ ok: true });
+  try {
+    const b = req.body || {};
+    const ref = String(b.TransactionReference || b.reference || '').trim();
+    if (!/^TRVPAY[A-F0-9]{10}$/.test(ref)) return;
+    const p = await loadPayment(ref);
+    if (p && p.status !== 'paid') await reconcilePayment(p, true);
+  } catch (e) {
+    console.error('pay/callback error:', e);
   }
 });
 
@@ -1077,6 +1514,7 @@ app.get('/vapid-public-key', (req, res) => {
   res.json({ key: process.env.VAPID_PUBLIC_KEY });
 });
 
+// Reminders are open to every app user (paid, trial or expired) exactly as before premium: they are retention, not a premium feature.
 app.post('/subscribe', async (req, res) => {
   const sub = req.body;
   if (!sub || !sub.endpoint || !sub.keys || !sub.keys.p256dh || !sub.keys.auth) {
