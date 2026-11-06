@@ -76,8 +76,8 @@ webpush.setVapidDetails(
 // MUST be set in .env. If missing, refuse to start.
 const DEVICE_SIGNING_SECRET = process.env.DEVICE_SIGNING_SECRET;
 if (!DEVICE_SIGNING_SECRET || DEVICE_SIGNING_SECRET.length < 32) {
-  console.error('❌ FATAL: DEVICE_SIGNING_SECRET missing or too short (need >=32 chars).');
-  console.error('   Generate one:  node -e "console.log(require(\'crypto\').randomBytes(48).toString(\'hex\'))"');
+  console.error(' FATAL: DEVICE_SIGNING_SECRET missing or too short (need >=32 chars).');
+  console.error(' Generate one:  node -e "console.log(require(\'crypto\').randomBytes(48).toString(\'hex\'))"');
   process.exit(1);
 }
 
@@ -88,7 +88,7 @@ const DEVICE_TOKEN_TTL_DAYS = 365; // how long a device stays registered
 // 'paid' : new devices start as 'pending' and get no activation code until
 //          grantActivation() is called (from the PesaFlux/Daraja callback, ResultCode 0).
 const ACTIVATION_MODE = (process.env.ACTIVATION_MODE || 'free').toLowerCase() === 'paid' ? 'paid' : 'free';
-console.log(`ℹ️  Activation mode: ${ACTIVATION_MODE}`);
+console.log(` Activation mode: ${ACTIVATION_MODE}`);
 
 // ====================== WhatsApp ownership check (free, inbound-only) ======================
 // The user sends a short code TO our WhatsApp business number; Meta's webhook tells us which
@@ -102,18 +102,18 @@ const WA_APP_SECRET = process.env.WHATSAPP_APP_SECRET || '';
 // How long a verification request stays valid. A person approving by hand needs longer than
 // an automatic check, so the default is 60 min in manual mode and 10 min when automatic.
 const RECOVERY_TTL_MIN = parseInt(process.env.RECOVERY_TTL_MINUTES, 10) || (WA_APP_SECRET ? 10 : 60);
-console.log(`ℹ️  WhatsApp verification: ${!WA_NUMBER ? 'NOT configured (set WHATSAPP_BUSINESS_NUMBER)' : WA_APP_SECRET ? 'automatic (webhook)' : 'manual approval only (no WHATSAPP_APP_SECRET)'}`);
+console.log(` WhatsApp verification: ${!WA_NUMBER ? 'NOT configured (set WHATSAPP_BUSINESS_NUMBER)' : WA_APP_SECRET ? 'automatic (webhook)' : 'manual approval only (no WHATSAPP_APP_SECRET)'}`);
 
 // ====================== Premium: pricing, trial, payments (PesaFlux) ======================
 // PESAFLUX_API_KEY and PESAFLUX_EMAIL are read from the environment under exactly these names.
 const PRICE_PERSONAL = parseInt(process.env.PRICE_PERSONAL_KES, 10) || 2;     // KES
 const PRICE_BUSINESS = parseInt(process.env.PRICE_BUSINESS_KES, 10) || 4;     // KES
 const PREMIUM_PERIOD_DAYS = parseInt(process.env.PREMIUM_PERIOD_DAYS, 10) || 30; // how long one payment lasts
-const TRIAL_MINUTES = parseFloat(process.env.TRIAL_MINUTES) || 2;                // free mode length. TESTING = 2. PRODUCTION: change 2 to 30 (or set the TRIAL_MINUTES env var)
+const TRIAL_MINUTES = parseFloat(process.env.TRIAL_MINUTES) || 30;                // free mode length. TESTING = 2. PRODUCTION: change 2 to 30 (or set the TRIAL_MINUTES env var)
 const TRIAL_MAX_PER_IP_PER_DAY = parseInt(process.env.TRIAL_MAX_PER_IP_PER_DAY, 10) || 20;
 const PESAFLUX_BASE_URL = (process.env.PESAFLUX_BASE_URL || 'https://api.pesaflux.co.ke').replace(/\/+$/, '');
 const PAYMENT_PENDING_MAX_MS = 10 * 60 * 1000;   // an unanswered M-Pesa prompt is treated as expired after this
-console.log(`ℹ️  Premium: personal KES ${PRICE_PERSONAL}, business KES ${PRICE_BUSINESS}, ${PREMIUM_PERIOD_DAYS} days per payment, trial ${TRIAL_MINUTES} min, PesaFlux ${process.env.PESAFLUX_API_KEY && process.env.PESAFLUX_EMAIL ? 'configured' : 'NOT configured (set PESAFLUX_API_KEY and PESAFLUX_EMAIL)'}`);
+console.log(`  Premium: personal KES ${PRICE_PERSONAL}, business KES ${PRICE_BUSINESS}, ${PREMIUM_PERIOD_DAYS} days per payment, trial ${TRIAL_MINUTES} min, PesaFlux ${process.env.PESAFLUX_API_KEY && process.env.PESAFLUX_EMAIL ? 'configured' : 'NOT configured (set PESAFLUX_API_KEY and PESAFLUX_EMAIL)'}`);
 
 // ====================== Supabase Postgres Connection Pool ======================
 const pool = new Pool({
@@ -125,8 +125,8 @@ const pool = new Pool({
 });
 
 pool.query('SELECT NOW()')
-  .then(() => console.log('✅ Supabase Postgres connected successfully'))
-  .catch(err => console.error('❌ Supabase connection error:', err.message));
+  .then(() => console.log(' Supabase Postgres connected successfully'))
+  .catch(err => console.error(' Supabase connection error:', err.message));
 
 // Bootstrap tables (idempotent)
 (async () => {
@@ -245,9 +245,9 @@ pool.query('SELECT NOW()')
     `);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_trv_payments_phone ON trv_payments(phone, created_at DESC)`);
 
-    console.log('✅ tables ready (push_subscriptions, fingerprints, devices, device_events, phone_challenges, entitlements, trv_payments)');
+    console.log('tables ready (push_subscriptions, fingerprints, devices, device_events, phone_challenges, entitlements, trv_payments)');
   } catch (err) {
-    console.error('❌ table bootstrap error:', err.message);
+    console.error(' table bootstrap error:', err.message);
   }
 
   // One live device per phone, enforced by the database (closes the register race).
@@ -258,7 +258,7 @@ pool.query('SELECT NOW()')
       ON devices(phone) WHERE revoked_at IS NULL
     `);
   } catch (err) {
-    console.error('⚠️ could not create uniq_active_device_phone (duplicate live devices for one phone exist?):', err.message);
+    console.error(' could not create uniq_active_device_phone (duplicate live devices for one phone exist?):', err.message);
   }
 })();
 
