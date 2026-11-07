@@ -76,8 +76,8 @@ webpush.setVapidDetails(
 // MUST be set in .env. If missing, refuse to start.
 const DEVICE_SIGNING_SECRET = process.env.DEVICE_SIGNING_SECRET;
 if (!DEVICE_SIGNING_SECRET || DEVICE_SIGNING_SECRET.length < 32) {
-  console.error(' FATAL: DEVICE_SIGNING_SECRET missing or too short (need >=32 chars).');
-  console.error(' Generate one:  node -e "console.log(require(\'crypto\').randomBytes(48).toString(\'hex\'))"');
+  console.error('❌ FATAL: DEVICE_SIGNING_SECRET missing or too short (need >=32 chars).');
+  console.error('   Generate one:  node -e "console.log(require(\'crypto\').randomBytes(48).toString(\'hex\'))"');
   process.exit(1);
 }
 
@@ -88,7 +88,7 @@ const DEVICE_TOKEN_TTL_DAYS = 365; // how long a device stays registered
 // 'paid' : new devices start as 'pending' and get no activation code until
 //          grantActivation() is called (from the PesaFlux/Daraja callback, ResultCode 0).
 const ACTIVATION_MODE = (process.env.ACTIVATION_MODE || 'free').toLowerCase() === 'paid' ? 'paid' : 'free';
-console.log(` Activation mode: ${ACTIVATION_MODE}`);
+console.log(`ℹ️  Activation mode: ${ACTIVATION_MODE}`);
 
 // ====================== WhatsApp ownership check (free, inbound-only) ======================
 // The user sends a short code TO our WhatsApp business number; Meta's webhook tells us which
@@ -102,18 +102,23 @@ const WA_APP_SECRET = process.env.WHATSAPP_APP_SECRET || '';
 // How long a verification request stays valid. A person approving by hand needs longer than
 // an automatic check, so the default is 60 min in manual mode and 10 min when automatic.
 const RECOVERY_TTL_MIN = parseInt(process.env.RECOVERY_TTL_MINUTES, 10) || (WA_APP_SECRET ? 10 : 60);
-console.log(` WhatsApp verification: ${!WA_NUMBER ? 'NOT configured (set WHATSAPP_BUSINESS_NUMBER)' : WA_APP_SECRET ? 'automatic (webhook)' : 'manual approval only (no WHATSAPP_APP_SECRET)'}`);
+console.log(`ℹ️  WhatsApp verification: ${!WA_NUMBER ? 'NOT configured (set WHATSAPP_BUSINESS_NUMBER)' : WA_APP_SECRET ? 'automatic (webhook)' : 'manual approval only (no WHATSAPP_APP_SECRET)'}`);
 
 // ====================== Premium: pricing, trial, payments (PesaFlux) ======================
 // PESAFLUX_API_KEY and PESAFLUX_EMAIL are read from the environment under exactly these names.
 const PRICE_PERSONAL = parseInt(process.env.PRICE_PERSONAL_KES, 10) || 250;     // KES
 const PRICE_BUSINESS = parseInt(process.env.PRICE_BUSINESS_KES, 10) || 500;     // KES
 const PREMIUM_PERIOD_DAYS = parseInt(process.env.PREMIUM_PERIOD_DAYS, 10) || 30; // how long one payment lasts
-const TRIAL_MINUTES = parseFloat(process.env.TRIAL_MINUTES) || 30;                // free mode length. TESTING = 2. PRODUCTION: change 2 to 30 (or set the TRIAL_MINUTES env var)
+const TRIAL_MINUTES = parseFloat(process.env.TRIAL_MINUTES) || 2;                // free mode length. TESTING = 2. PRODUCTION: change 2 to 30 (or set the TRIAL_MINUTES env var)
 const TRIAL_MAX_PER_IP_PER_DAY = parseInt(process.env.TRIAL_MAX_PER_IP_PER_DAY, 10) || 20;
 const PESAFLUX_BASE_URL = (process.env.PESAFLUX_BASE_URL || 'https://api.pesaflux.co.ke').replace(/\/+$/, '');
 const PAYMENT_PENDING_MAX_MS = 10 * 60 * 1000;   // an unanswered M-Pesa prompt is treated as expired after this
-console.log(`  Premium: personal KES ${PRICE_PERSONAL}, business KES ${PRICE_BUSINESS}, ${PREMIUM_PERIOD_DAYS} days per payment, trial ${TRIAL_MINUTES} min, PesaFlux ${process.env.PESAFLUX_API_KEY && process.env.PESAFLUX_EMAIL ? 'configured' : 'NOT configured (set PESAFLUX_API_KEY and PESAFLUX_EMAIL)'}`);
+// ---- Affiliates ----
+const AFFILIATE_FEE_KES = parseInt(process.env.AFFILIATE_FEE_KES, 10) || 50;           // one-off fee to become an affiliate
+const COMMISSION_PERSONAL_KES = parseInt(process.env.COMMISSION_PERSONAL_KES, 10) || 49; // per verified Personal payment
+const COMMISSION_BUSINESS_KES = parseInt(process.env.COMMISSION_BUSINESS_KES, 10) || 80; // per verified Business payment
+const APP_PUBLIC_URL = process.env.APP_PUBLIC_URL || 'https://travis-three.vercel.app/travis_core.html'; // used for the share link
+console.log(`ℹ️  Premium: personal KES ${PRICE_PERSONAL}, business KES ${PRICE_BUSINESS}, ${PREMIUM_PERIOD_DAYS} days per payment, trial ${TRIAL_MINUTES} min, PesaFlux ${process.env.PESAFLUX_API_KEY && process.env.PESAFLUX_EMAIL ? 'configured' : 'NOT configured (set PESAFLUX_API_KEY and PESAFLUX_EMAIL)'}`);
 
 // ====================== Supabase Postgres Connection Pool ======================
 const pool = new Pool({
@@ -125,8 +130,8 @@ const pool = new Pool({
 });
 
 pool.query('SELECT NOW()')
-  .then(() => console.log(' Supabase Postgres connected successfully'))
-  .catch(err => console.error(' Supabase connection error:', err.message));
+  .then(() => console.log('✅ Supabase Postgres connected successfully'))
+  .catch(err => console.error('❌ Supabase connection error:', err.message));
 
 // Bootstrap tables (idempotent)
 (async () => {
@@ -245,9 +250,74 @@ pool.query('SELECT NOW()')
     `);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_trv_payments_phone ON trv_payments(phone, created_at DESC)`);
 
-    console.log('tables ready (push_subscriptions, fingerprints, devices, device_events, phone_challenges, entitlements, trv_payments)');
+    try {
+      // Affiliates. user_id is TEXT so it works whatever type your existing users.id is.
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS trv_affiliates (
+          id            BIGSERIAL PRIMARY KEY,
+          user_id       TEXT UNIQUE NOT NULL,
+          code          TEXT UNIQUE NOT NULL,
+          status        TEXT NOT NULL DEFAULT 'active',
+          payout_phone  TEXT,
+          fee_payment_id TEXT,
+          joined_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )`);
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS trv_aff_payments (
+          id              TEXT PRIMARY KEY,
+          user_id         TEXT NOT NULL,
+          amount          INTEGER NOT NULL,
+          msisdn          TEXT NOT NULL,
+          status          TEXT NOT NULL DEFAULT 'pending',
+          request_id      TEXT,
+          receipt         TEXT UNIQUE,
+          failure_reason  TEXT,
+          created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          paid_at         TIMESTAMPTZ,
+          last_checked_at TIMESTAMPTZ,
+          ip              TEXT
+        )`);
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS trv_referrals (
+          phone        TEXT PRIMARY KEY,
+          affiliate_id BIGINT NOT NULL,
+          code         TEXT NOT NULL,
+          source       TEXT NOT NULL,
+          created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_trv_referrals_aff ON trv_referrals(affiliate_id, created_at DESC)`);
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS trv_payouts (
+          id           BIGSERIAL PRIMARY KEY,
+          affiliate_id BIGINT NOT NULL,
+          amount       INTEGER NOT NULL,
+          cutoff       TIMESTAMPTZ NOT NULL,
+          reference    TEXT,
+          paid_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )`);
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS trv_commissions (
+          id            BIGSERIAL PRIMARY KEY,
+          payment_id    TEXT UNIQUE NOT NULL,
+          affiliate_id  BIGINT NOT NULL,
+          customer_phone TEXT NOT NULL,
+          plan          TEXT NOT NULL,
+          kind          TEXT NOT NULL,
+          amount_paid   INTEGER NOT NULL,
+          commission    INTEGER NOT NULL,
+          created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          payout_id     BIGINT
+        )`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_trv_commissions_aff ON trv_commissions(affiliate_id, created_at DESC)`);
+      console.log('✅ affiliate tables ready');
+    } catch (affErr) {
+      console.error('❌ affiliate table bootstrap error:', affErr.message);
+    }
+
+    console.log('✅ tables ready (push_subscriptions, fingerprints, devices, device_events, phone_challenges, entitlements, trv_payments)');
   } catch (err) {
-    console.error(' table bootstrap error:', err.message);
+    console.error('❌ table bootstrap error:', err.message);
   }
 
   // One live device per phone, enforced by the database (closes the register race).
@@ -258,10 +328,9 @@ pool.query('SELECT NOW()')
       ON devices(phone) WHERE revoked_at IS NULL
     `);
   } catch (err) {
-    console.error(' could not create uniq_active_device_phone (duplicate live devices for one phone exist?):', err.message);
+    console.error('⚠️ could not create uniq_active_device_phone (duplicate live devices for one phone exist?):', err.message);
   }
 })();
-
 
 // Audit rows older than 30 days are deleted daily so the table can't grow without bound.
 async function pruneDeviceEvents() {
@@ -457,40 +526,33 @@ async function settlePayment(p, receipt) {
     );
     if (!upd.rows[0]) { await client.query('ROLLBACK'); return await loadPayment(p.id); }
     const row = upd.rows[0];
-
-    // Affiliate activation is a separate product. It must never create premium access.
-    if (row.kind === 'affiliate_signup') {
-      await activateAffiliateForPayment(client, row);
-    } else {
-      const until = new Date(now.getTime() + PREMIUM_PERIOD_DAYS * 86400 * 1000);
-      if (row.kind === 'upgrade') {
-        const u = await client.query(
-          `UPDATE entitlements
-              SET plan = 'business', paid_at = $2, subscription_status = 'active', updated_at = $2,
-                  paid_until = CASE WHEN paid_until > $2 THEN paid_until ELSE $3 END
-            WHERE phone = $1`,
-          [row.phone, now, until]
-        );
-        if (u.rowCount === 0) {
-          await client.query(
-            `INSERT INTO entitlements (phone, plan, paid_at, paid_until, subscription_status, updated_at)
-             VALUES ($1, 'business', $2, $3, 'active', $2)`,
-            [row.phone, now, until]
-          );
-        }
-      } else {
+    const until = new Date(now.getTime() + PREMIUM_PERIOD_DAYS * 86400 * 1000);
+    if (row.kind === 'upgrade') {
+      const u = await client.query(
+        `UPDATE entitlements
+            SET plan = 'business', paid_at = $2, subscription_status = 'active', updated_at = $2,
+                paid_until = CASE WHEN paid_until > $2 THEN paid_until ELSE $3 END
+          WHERE phone = $1`,
+        [row.phone, now, until]
+      );
+      if (u.rowCount === 0) {
         await client.query(
           `INSERT INTO entitlements (phone, plan, paid_at, paid_until, subscription_status, updated_at)
-           VALUES ($1, $2, $3, $4, 'active', $3)
-           ON CONFLICT (phone) DO UPDATE SET
-             plan = EXCLUDED.plan, paid_at = EXCLUDED.paid_at, subscription_status = 'active', updated_at = EXCLUDED.updated_at,
-             paid_until = CASE WHEN entitlements.paid_until > EXCLUDED.paid_at THEN entitlements.paid_until ELSE EXCLUDED.paid_until END`,
-          [row.phone, row.plan, now, until]
+           VALUES ($1, 'business', $2, $3, 'active', $2)`,
+          [row.phone, now, until]
         );
       }
-      // The ledger is updated in the same transaction and is idempotent by payment_id.
-      await affiliateOnVerifiedPayment(client, row);
+    } else {
+      await client.query(
+        `INSERT INTO entitlements (phone, plan, paid_at, paid_until, subscription_status, updated_at)
+         VALUES ($1, $2, $3, $4, 'active', $3)
+         ON CONFLICT (phone) DO UPDATE SET
+           plan = EXCLUDED.plan, paid_at = EXCLUDED.paid_at, subscription_status = 'active', updated_at = EXCLUDED.updated_at,
+           paid_until = CASE WHEN entitlements.paid_until > EXCLUDED.paid_at THEN entitlements.paid_until ELSE EXCLUDED.paid_until END`,
+        [row.phone, row.plan, now, until]
+      );
     }
+    await recordCommission(client, row);   // affiliate share; can never undo the customer's access
     await client.query('COMMIT');
     return row;
   } catch (e) {
@@ -526,18 +588,6 @@ async function reconcilePayment(p, force = false) {
   const j = (r && r.json) || {};
   const st = String(j.TransactionStatus || '').trim().toLowerCase();
 
-  // Safe diagnostic logging: never log API keys, passwords, or full phone numbers.
-  console.log('PesaFlux payment status:', {
-    payment_id: p.id,
-    kind: p.kind,
-    request_id: p.request_id,
-    provider_http_status: r && r.status,
-    provider_result_code: j.ResultCode || j.ResponseCode || j.response_code || null,
-    transaction_status: j.TransactionStatus || null,
-    transaction_code: j.TransactionCode || null,
-    result_description: j.ResultDesc || j.ResponseDescription || j.ResponseMessage || j.message || null
-  });
-
   if (/^(completed?|success(ful)?)$/.test(st)) {
     const amount = Number(j.TransactionAmount);
     if (!(amount >= p.amount)) {
@@ -549,16 +599,7 @@ async function reconcilePayment(p, force = false) {
     return (await settlePayment(p, receipt)) || p;
   }
   if (/fail|cancel|reject|timeout|expire|insufficient|declin/.test(st)) {
-    // ResultCode 200 means the status lookup succeeded; it is not the payment result.
-    // Prefer the transaction-specific code/description so the UI can explain the failure.
-    const transactionCode = String(j.TransactionCode || '').trim();
-    const transactionDescription = String(
-      j.ResultDesc || j.ResponseDescription || j.ResponseMessage || j.message || ''
-    ).trim();
-    const reason = transactionCode && transactionDescription
-      ? `${transactionCode}: ${transactionDescription}`
-      : transactionCode || transactionDescription || st.slice(0, 60);
-    await markPayment(p.id, 'failed', reason.slice(0, 120));
+    await markPayment(p.id, 'failed', st.slice(0, 60));
     return await loadPayment(p.id);
   }
   if (p.status === 'pending' && ageMs > PAYMENT_PENDING_MAX_MS) {
@@ -643,7 +684,6 @@ app.post('/register', authLimiter, async (req, res) => {
   const sanitizedFullName = sanitizeText(fullName);
   const sanitizedLocation = sanitizeText(location);
   const sanitizedPhone = sanitizePhone(phone);
-  const sanitizedEmail = email ? email.toString().trim().toLowerCase() : null;
   const sanitizedPassword = password ? password.toString().trim() : '';
 
   if (!sanitizedFullName || !sanitizedLocation || !sanitizedPhone || !sanitizedPassword) {
@@ -661,27 +701,15 @@ app.post('/register', authLimiter, async (req, res) => {
     if (existing.rows.length > 0) {
       return res.status(400).json({ error: 'Phone already registered' });
     }
-    if (sanitizedEmail) {
-      const emailExisting = await pool.query('SELECT id FROM users WHERE LOWER(email) = $1', [sanitizedEmail]);
-      if (emailExisting.rows.length > 0) {
-        return res.status(400).json({ error: 'Email already registered. Use another email or log in.' });
-      }
-    }
     const hashed = await bcrypt.hash(sanitizedPassword, 10);
     await pool.query(
       `INSERT INTO users (full_name, location, phone, email, password)
        VALUES ($1, $2, $3, $4, $5)`,
-      [sanitizedFullName, sanitizedLocation, sanitizedPhone, sanitizedEmail, hashed]
+      [sanitizedFullName, sanitizedLocation, sanitizedPhone, email ? email.trim() : null, hashed]
     );
     res.json({ message: 'Registered successfully' });
   } catch (e) {
     console.error(e);
-    if (e && e.code === '23505' && String(e.constraint || '').includes('users_email')) {
-      return res.status(400).json({ error: 'Email already registered. Use another email or log in.' });
-    }
-    if (e && e.code === '23505' && String(e.constraint || '').includes('users_phone')) {
-      return res.status(400).json({ error: 'Phone already registered' });
-    }
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -722,268 +750,6 @@ app.post('/login', authLimiter, async (req, res) => {
     return res.status(500).json({ error: 'Server error during login' });
   }
 });
-
-// ====================== Affiliate functions and routes ======================
-const AFFILIATE_SIGNUP_FEE = 50;
-const AFFILIATE_COMMISSION = Object.freeze({ personal: 49, business: 80 });
-const AFFILIATE_CODE_RE = /^[A-Z0-9]{8}$/;
-const AFFILIATE_PAYMENT_RE = /^TRVAF[A-F0-9]{10}$/;
-
-function affiliateCode() {
-  return crypto.randomBytes(5).toString('hex').toUpperCase().slice(0, 8);
-}
-
-function kenyaDate(d = new Date()) {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Africa/Nairobi', year: 'numeric', month: '2-digit', day: '2-digit'
-  }).format(d);
-}
-
-function nextFridayOnOrAfter(date) {
-  const d = new Date(date);
-  const day = d.getUTCDay(); // Sunday = 0; Friday = 5
-  d.setUTCDate(d.getUTCDate() + ((5 - day + 7) % 7));
-  return d.toISOString().slice(0, 10);
-}
-
-async function bootstrapAffiliateTables() {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS affiliates (
-      id BIGSERIAL PRIMARY KEY,
-      user_id TEXT UNIQUE,
-      phone TEXT NOT NULL UNIQUE,
-      code TEXT NOT NULL UNIQUE,
-      status TEXT NOT NULL DEFAULT 'pending',
-      activation_payment_id TEXT UNIQUE,
-      activation_receipt TEXT UNIQUE,
-      mpesa_msisdn TEXT,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      activated_at TIMESTAMPTZ,
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      CHECK (status IN ('pending','active','suspended'))
-    )
-  `);
-  // Migrate installations that previously created this column as BIGINT.
-  await pool.query(`ALTER TABLE affiliates ALTER COLUMN user_id TYPE TEXT USING user_id::text`);
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS affiliate_referrals (
-      phone TEXT PRIMARY KEY,
-      affiliate_id BIGINT NOT NULL,
-      affiliate_code TEXT NOT NULL,
-      device_id CHAR(32),
-      captured_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `);
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_affiliate_referrals_affiliate ON affiliate_referrals(affiliate_id)`);
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS affiliate_commissions (
-      id BIGSERIAL PRIMARY KEY,
-      affiliate_id BIGINT NOT NULL,
-      payment_id TEXT NOT NULL UNIQUE,
-      referred_phone TEXT NOT NULL,
-      plan TEXT NOT NULL,
-      customer_amount INTEGER NOT NULL,
-      commission_amount INTEGER NOT NULL,
-      status TEXT NOT NULL DEFAULT 'accrued',
-      payable_on DATE NOT NULL,
-      payout_batch_id BIGINT,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      paid_at TIMESTAMPTZ,
-      CHECK (status IN ('accrued','payable','paid','void'))
-    )
-  `);
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_affiliate_commissions_affiliate ON affiliate_commissions(affiliate_id, created_at DESC)`);
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS affiliate_payout_batches (
-      id BIGSERIAL PRIMARY KEY,
-      week_ending DATE NOT NULL UNIQUE,
-      status TEXT NOT NULL DEFAULT 'open',
-      total_amount INTEGER NOT NULL DEFAULT 0,
-      marked_by TEXT,
-      marked_at TIMESTAMPTZ,
-      notes TEXT,
-      CHECK (status IN ('open','paid','cancelled'))
-    )
-  `);
-}
-
-async function uniqueAffiliateCode(clientOrPool) {
-  for (let i = 0; i < 8; i++) {
-    const code = affiliateCode();
-    const r = await clientOrPool.query('SELECT 1 FROM affiliates WHERE code = $1', [code]);
-    if (!r.rows[0]) return code;
-  }
-  throw new Error('Could not allocate affiliate code');
-}
-
-async function captureAffiliateReferral(phone, rawCode, deviceId) {
-  const code = String(rawCode || '').trim().toUpperCase();
-  if (!AFFILIATE_CODE_RE.test(code)) return { captured: false, reason: 'invalid_code' };
-  const r = await pool.query('SELECT id, phone, status FROM affiliates WHERE code = $1', [code]);
-  const a = r.rows[0];
-  if (!a || a.status !== 'active' || a.phone === phone) return { captured: false, reason: 'unknown_or_ineligible_code' };
-  await pool.query(`
-    INSERT INTO affiliate_referrals (phone, affiliate_id, affiliate_code, device_id)
-    VALUES ($1, $2, $3, $4)
-    ON CONFLICT (phone) DO NOTHING
-  `, [phone, a.id, code, deviceId || null]);
-  return { captured: true, code };
-}
-
-async function affiliateOnVerifiedPayment(client, paymentRow) {
-  if (!paymentRow || paymentRow.kind === 'affiliate_signup') return;
-  if (!['personal', 'business'].includes(String(paymentRow.plan))) return;
-  const commission = AFFILIATE_COMMISSION[paymentRow.plan];
-  if (!commission) return;
-  const ref = await client.query(`
-    SELECT ar.affiliate_id, ar.affiliate_code
-    FROM affiliate_referrals ar
-    JOIN affiliates a ON a.id = ar.affiliate_id AND a.status = 'active'
-    WHERE ar.phone = $1
-  `, [paymentRow.phone]);
-  if (!ref.rows[0]) return;
-  const payableOn = nextFridayOnOrAfter(paymentRow.paid_at || new Date());
-  await client.query(`
-    INSERT INTO affiliate_commissions
-      (affiliate_id, payment_id, referred_phone, plan, customer_amount, commission_amount, payable_on)
-    VALUES ($1, $2, $3, $4, $5, $6, $7)
-    ON CONFLICT (payment_id) DO NOTHING
-  `, [ref.rows[0].affiliate_id, paymentRow.id, paymentRow.phone, paymentRow.plan,
-      paymentRow.amount, commission, payableOn]);
-}
-
-async function activateAffiliateForPayment(client, paymentRow) {
-  const a = await client.query(`
-    UPDATE affiliates
-    SET status = 'active', activation_receipt = $2, activated_at = COALESCE(activated_at, NOW()), updated_at = NOW()
-    WHERE activation_payment_id = $1 AND status = 'pending'
-    RETURNING id, code, phone
-  `, [paymentRow.id, paymentRow.receipt]);
-  return a.rows[0] || null;
-}
-
-/* Patch the existing settlePayment():
- *
- * After `const row = upd.rows[0];` add:
- *   if (row.kind === 'affiliate_signup') {
- *     await activateAffiliateForPayment(client, row);
- *   } else {
- *     await affiliateOnVerifiedPayment(client, row);
- *   }
- *
- * Then wrap the existing entitlement block in `if (row.kind !== 'affiliate_signup') { ... }`.
- * This prevents the KES 50 affiliate payment from creating a premium entitlement.
- * Call affiliateOnVerifiedPayment only after the payment UPDATE succeeded; its unique
- * payment_id constraint makes callbacks and status retries idempotent.
- */
-
-
-bootstrapAffiliateTables().catch(e => console.error('affiliate bootstrap error:', e.message));
-
-app.post('/affiliate/activate', authLimiter, auth, async (req, res) => {
-  try {
-    const phone = sanitizePhone(req.user.phone);
-    const msisdnRaw = sanitizePhone(req.body && req.body.msisdn) || phone;
-    if (!isValidKenyanPhone(msisdnRaw)) return res.status(400).json({ error: 'Enter a valid Kenyan M-Pesa number.' });
-    const msisdn = normalizeKenyanPhone(msisdnRaw);
-    const existing = await pool.query('SELECT * FROM affiliates WHERE phone = $1', [phone]);
-    if (existing.rows[0] && existing.rows[0].status === 'active') return res.status(409).json({ code: 'ALREADY_AFFILIATE', affiliate: existing.rows[0] });
-    if (existing.rows[0] && existing.rows[0].activation_payment_id) {
-      const previousPayment = await loadPayment(existing.rows[0].activation_payment_id);
-      if (previousPayment && previousPayment.status === 'pending') {
-        return res.json({ payment_id: previousPayment.id, status: 'pending' });
-      }
-      // Failed, expired, or missing activation payments may be retried with a new ID.
-    }
-    const user = await pool.query('SELECT id FROM users WHERE phone = $1', [phone]);
-    if (!user.rows[0]) return res.status(401).json({ error: 'Account not found.' });
-    const id = 'TRVAF' + crypto.randomBytes(5).toString('hex').toUpperCase();
-    const code = await uniqueAffiliateCode(pool);
-    await pool.query(`
-      INSERT INTO affiliates (user_id, phone, code, status, activation_payment_id, mpesa_msisdn)
-      VALUES ($1, $2, $3, 'pending', $4, $5)
-      ON CONFLICT (phone) DO UPDATE SET activation_payment_id = EXCLUDED.activation_payment_id,
-        mpesa_msisdn = EXCLUDED.mpesa_msisdn, updated_at = NOW()
-    `, [String(user.rows[0].id), phone, code, id, msisdn]);
-    await pool.query(`
-      INSERT INTO trv_payments (id, phone, plan, kind, amount, msisdn, ip)
-      VALUES ($1, $2, 'affiliate', 'affiliate_signup', $3, $4, $5)
-    `, [id, phone, AFFILIATE_SIGNUP_FEE, msisdn, req.ip]);
-    let r;
-    try { r = await pesafluxCall('/v1/initiatestk', { amount: AFFILIATE_SIGNUP_FEE, msisdn, reference: id }); }
-    catch (_) { await pool.query(`UPDATE trv_payments SET status='failed', failure_reason='provider_unreachable' WHERE id=$1`, [id]); return res.status(502).json({ error: 'Could not reach M-Pesa.' }); }
-    const j = (r && r.json) || {};
-    if (String(j.success) !== '200' || !j.transaction_request_id) {
-      await pool.query(`UPDATE trv_payments SET status='failed', failure_reason='provider_rejected' WHERE id=$1`, [id]);
-      return res.status(502).json({ error: 'Could not start the KES 50 M-Pesa prompt.' });
-    }
-    await pool.query(`UPDATE trv_payments SET request_id=$2, updated_at=NOW() WHERE id=$1`, [id, String(j.transaction_request_id)]);
-    return res.json({ payment_id: id, status: 'pending', amount: AFFILIATE_SIGNUP_FEE });
-  } catch (e) { console.error('affiliate/activate error:', e); return res.status(500).json({ error: 'Server error' }); }
-});
-
-app.post('/affiliate/activate/status', verifyLimiter, auth, async (req, res) => {
-  try {
-    const p = await loadPayment(String(req.body && req.body.payment_id || ''));
-    if (!p || p.phone !== sanitizePhone(req.user.phone) || p.kind !== 'affiliate_signup') return res.status(404).json({ status: 'unknown' });
-    const checked = await reconcilePayment(p);
-    const a = await pool.query('SELECT code, status, activated_at FROM affiliates WHERE phone = $1', [p.phone]);
-    return res.json({ status: checked.status, affiliate: a.rows[0] || null, failure_reason: checked.failure_reason || null });
-  } catch (e) { console.error('affiliate/activate/status error:', e); return res.status(500).json({ error: 'Server error' }); }
-});
-
-app.get('/affiliate/me', verifyLimiter, auth, async (req, res) => {
-  try {
-    const phone = sanitizePhone(req.user.phone);
-    await pool.query(`UPDATE affiliate_commissions SET status='payable' WHERE status='accrued' AND payable_on <= CURRENT_DATE`);
-    const a = await pool.query(`SELECT id, phone, code, status, created_at, activated_at FROM affiliates WHERE phone=$1`, [phone]);
-    if (!a.rows[0]) return res.status(404).json({ code: 'NOT_AFFILIATE' });
-    const summary = await pool.query(`
-      SELECT
-        COUNT(*) FILTER (WHERE status IN ('accrued','payable'))::int AS successful_payments,
-        COALESCE(SUM(commission_amount) FILTER (WHERE status IN ('accrued','payable')),0)::int AS accrued_amount,
-        COALESCE(SUM(commission_amount) FILTER (WHERE status='payable'),0)::int AS payable_amount,
-        COALESCE(SUM(commission_amount) FILTER (WHERE status='paid'),0)::int AS paid_amount
-      FROM affiliate_commissions WHERE affiliate_id=$1
-    `, [a.rows[0].id]);
-    const rows = await pool.query(`
-      SELECT payment_id, plan, customer_amount, commission_amount, status, payable_on, created_at, paid_at
-      FROM affiliate_commissions WHERE affiliate_id=$1 ORDER BY created_at DESC LIMIT 100
-    `, [a.rows[0].id]);
-    return res.json({ affiliate: a.rows[0], summary: summary.rows[0], commissions: rows.rows,
-      share_url: `${String(process.env.APP_URL || '').replace(/\/$/, '') || `${req.protocol}://${req.get('host')}`}/?ref=${encodeURIComponent(a.rows[0].code)}` });
-  } catch (e) { console.error('affiliate/me error:', e); return res.status(500).json({ error: 'Server error' }); }
-});
-
-// Manual Friday payout workflow. Protect these with the same admin secret used by existing admin routes.
-function affiliateAdmin(req, res, next) {
-  const supplied = req.headers['x-admin-key'] || req.headers['x-admin-secret'];
-  if (!process.env.ADMIN_KEY || supplied !== process.env.ADMIN_KEY) return res.status(401).json({ error: 'Unauthorized' });
-  next();
-}
-app.post('/affiliate/admin/payout-batches/prepare', affiliateAdmin, async (req, res) => {
-  const weekEnding = String(req.body && req.body.week_ending || nextFridayOnOrAfter(new Date()));
-  await pool.query(`UPDATE affiliate_commissions SET status='payable' WHERE status='accrued' AND payable_on <= $1`, [weekEnding]);
-  const r = await pool.query(`
-    INSERT INTO affiliate_payout_batches (week_ending, total_amount)
-    SELECT $1, COALESCE(SUM(commission_amount),0) FROM affiliate_commissions WHERE status='payable'
-    ON CONFLICT (week_ending) DO UPDATE SET total_amount=EXCLUDED.total_amount
-    RETURNING *
-  `, [weekEnding]);
-  res.json(r.rows[0]);
-});
-app.post('/affiliate/admin/payout-batches/:id/mark-paid', affiliateAdmin, async (req, res) => {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    const b = await client.query(`UPDATE affiliate_payout_batches SET status='paid', marked_by=$2, marked_at=NOW(), notes=$3 WHERE id=$1 AND status='open' RETURNING *`, [req.params.id, String(req.headers['x-admin-user'] || 'admin'), String(req.body && req.body.notes || '')]);
-    if (!b.rows[0]) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Open payout batch not found.' }); }
-    await client.query(`UPDATE affiliate_commissions SET status='paid', payout_batch_id=$1, paid_at=NOW() WHERE status='payable' AND payable_on <= $2`, [b.rows[0].id, b.rows[0].week_ending]);
-    await client.query('COMMIT');
-    res.json(b.rows[0]);
-  } catch (e) { await client.query('ROLLBACK'); res.status(500).json({ error: 'Server error' }); } finally { client.release(); }
-});
-
 
 // ====================== /register-device ======================
 // Called ONCE per install (from the phone modal). Issues device_id + signed token.
@@ -1074,6 +840,15 @@ app.post('/register-device', deviceLimiter, async (req, res) => {
       });
     }
 
+    // Optional referral code typed at install. Checked BEFORE a device is created, so a typo
+    // can be corrected and retried instead of costing the user their one registration.
+    let refAffiliate = null;
+    if (req.body && req.body.ref != null && String(req.body.ref).trim() !== '') {
+      const rr = await resolveReferral(phoneKey, req.body.ref, 'install');
+      if (!rr.ok) return res.status(400).json({ code: 'bad_referral', error: rr.error });
+      if (!rr.existing) refAffiliate = rr.affiliate;
+    }
+
     // 32 uppercase hex chars, cryptographically random.
     const deviceId = crypto.randomBytes(16).toString('hex').toUpperCase();
 
@@ -1107,14 +882,6 @@ app.post('/register-device', deviceLimiter, async (req, res) => {
       throw insErr;
     }
 
-    // Capture an optional referral only on first registration. The helper never overwrites
-    // an existing phone attribution, so recovery/reinstall cannot change the owner.
-    try {
-      await captureAffiliateReferral(phoneKey, req.body && req.body.referral_code, deviceId);
-    } catch (affiliateErr) {
-      console.error('affiliate referral capture failed (non-fatal):', affiliateErr.message);
-    }
-
     // Non-fatal extras: a failure here must NOT leave the user with a registered-but-unusable device.
     try {
       await pool.query(
@@ -1131,6 +898,7 @@ app.post('/register-device', deviceLimiter, async (req, res) => {
     } catch (extraErr) {
       console.error('register-device (non-fatal) extras failed:', extraErr.message);
     }
+    if (refAffiliate) await attachReferral(phoneKey, refAffiliate, 'install').catch((e) => console.error('referral attach failed:', e.message));
 
     const body = {
       device_id: deviceId,
@@ -1254,6 +1022,163 @@ app.post('/verify-device', verifyLimiter, async (req, res) => {
   }
 });
 
+// ====================== Affiliate helpers ======================
+const AFF_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const AFF_CODE_RE = /^TG[A-HJ-NP-Z2-9]{6}$/;
+const normRefCode = (raw) => String(raw == null ? '' : raw).toUpperCase().replace(/[^A-Z0-9]/g, '');
+const showRefCode = (code) => (code ? code.slice(0, 2) + '-' + code.slice(2) : '');
+const BAD_REF_MSG = 'Referral code not recognised. Check it, or leave it blank.';
+
+function genAffCode() {
+  let c = 'TG';
+  for (let i = 0; i < 6; i++) c += AFF_ALPHABET[crypto.randomInt(AFF_ALPHABET.length)];
+  return c;
+}
+
+// Commission for ONE verified customer payment. An upgrade (Personal -> Business difference)
+// pays the difference of the two commissions, so a customer who ends on Business always
+// yields exactly the Business commission.
+function commissionFor(p) {
+  if (p.kind === 'upgrade') return Math.max(0, COMMISSION_BUSINESS_KES - COMMISSION_PERSONAL_KES);
+  return p.plan === 'business' ? COMMISSION_BUSINESS_KES : COMMISSION_PERSONAL_KES;
+}
+
+// Payout rhythm (East Africa Time, UTC+3, no daylight saving): the week closes on Friday 00:00.
+// Everything earned BEFORE that moment is payable on that Friday. Earnings made on the Friday
+// itself or later ("Friday exclusive") go into the next Friday's payout.
+function payoutWindow(now = new Date()) {
+  const EAT = 3 * 3600 * 1000;
+  const local = new Date(now.getTime() + EAT);
+  const back = (local.getUTCDay() - 5 + 7) % 7;
+  const lastCutoff = new Date(Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate() - back) - EAT);
+  const nextCutoff = new Date(lastCutoff.getTime() + 7 * 86400 * 1000);
+  return { lastCutoff, nextCutoff };
+}
+
+async function phoneHasPaid(phone) {
+  const r = await pool.query(`SELECT 1 FROM trv_payments WHERE phone = $1 AND status = 'paid' LIMIT 1`, [phone]);
+  return r.rowCount > 0;
+}
+async function referralOf(phone) {
+  const r = await pool.query(`SELECT affiliate_id, code FROM trv_referrals WHERE phone = $1`, [phone]);
+  return r.rows[0] || null;
+}
+
+// Validate a code for a customer phone WITHOUT writing anything.
+async function resolveReferral(phoneKey, raw, source) {
+  const code = normRefCode(raw);
+  if (!AFF_CODE_RE.test(code)) return { ok: false, error: BAD_REF_MSG };
+  const a = await pool.query(
+    `SELECT a.id, a.code, a.payout_phone, u.phone AS user_phone
+       FROM trv_affiliates a LEFT JOIN users u ON u.id::text = a.user_id
+      WHERE a.code = $1 AND a.status = 'active'`, [code]);
+  const aff = a.rows[0];
+  if (!aff) return { ok: false, error: BAD_REF_MSG };
+  const own = [aff.user_phone, aff.payout_phone].filter(Boolean).map((p) => {
+    try { return normalizeKenyanPhone(sanitizePhone(p)); } catch (e) { return ''; }
+  });
+  if (own.includes(phoneKey)) return { ok: false, error: 'You cannot use your own referral code.' };
+  if (await referralOf(phoneKey)) return { ok: true, existing: true, affiliate: aff };   // first code wins, never replaced
+  if (source === 'payment' && await phoneHasPaid(phoneKey)) {
+    return { ok: false, error: 'A referral code can only be added before your first payment.' };
+  }
+  return { ok: true, affiliate: aff };
+}
+async function attachReferral(phoneKey, aff, source) {
+  await pool.query(
+    `INSERT INTO trv_referrals (phone, affiliate_id, code, source) VALUES ($1, $2, $3, $4) ON CONFLICT (phone) DO NOTHING`,
+    [phoneKey, aff.id, aff.code, source]);
+}
+
+// Called INSIDE settlePayment's transaction. A savepoint keeps a commission problem from ever
+// undoing the customer's access: the payment always wins, the commission is logged for review.
+async function recordCommission(client, payment) {
+  await client.query('SAVEPOINT commission');
+  try {
+    const r = await client.query(
+      `SELECT r.affiliate_id FROM trv_referrals r JOIN trv_affiliates a ON a.id = r.affiliate_id
+        WHERE r.phone = $1 AND a.status = 'active'`, [payment.phone]);
+    if (r.rows[0]) {
+      const amount = commissionFor(payment);
+      if (amount > 0) {
+        await client.query(
+          `INSERT INTO trv_commissions (payment_id, affiliate_id, customer_phone, plan, kind, amount_paid, commission)
+           VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (payment_id) DO NOTHING`,
+          [payment.id, r.rows[0].affiliate_id, payment.phone, payment.plan, payment.kind, payment.amount, amount]);
+      }
+    }
+    await client.query('RELEASE SAVEPOINT commission');
+  } catch (e) {
+    await client.query('ROLLBACK TO SAVEPOINT commission').catch(() => {});
+    console.error('commission not recorded for payment', payment.id, e.message);
+  }
+}
+
+// ---- Affiliate join fee (KES 50) -- same PesaFlux rules as customer payments ----
+async function settleAffPayment(p, receipt) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const now = new Date();
+    const upd = await client.query(
+      `UPDATE trv_aff_payments SET status = 'paid', paid_at = $2, updated_at = $2, receipt = $3, failure_reason = NULL
+        WHERE id = $1 AND status <> 'paid' RETURNING *`, [p.id, now, receipt]);
+    if (!upd.rows[0]) { await client.query('ROLLBACK'); return null; }
+    const clash = await client.query(`SELECT 1 FROM trv_payments WHERE receipt = $1`, [receipt]);
+    if (clash.rowCount) { await client.query('ROLLBACK'); await pool.query(`UPDATE trv_aff_payments SET status='failed', failure_reason='receipt_reused', updated_at=NOW() WHERE id=$1 AND status<>'paid'`, [p.id]); return null; }
+    for (let i = 0; i < 6; i++) {
+      await client.query('SAVEPOINT newcode');
+      try {
+        await client.query(
+          `INSERT INTO trv_affiliates (user_id, code, fee_payment_id) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO NOTHING`,
+          [p.user_id, genAffCode(), p.id]);
+        await client.query('RELEASE SAVEPOINT newcode');
+        break;
+      } catch (e) {
+        await client.query('ROLLBACK TO SAVEPOINT newcode');
+        if (e.code !== '23505' || i === 5) throw e;   // code collision: draw another
+      }
+    }
+    await client.query('COMMIT');
+    return upd.rows[0];
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    if (e.code === '23505') { await pool.query(`UPDATE trv_aff_payments SET status='failed', failure_reason='receipt_reused', updated_at=NOW() WHERE id=$1 AND status<>'paid'`, [p.id]).catch(() => {}); return null; }
+    throw e;
+  } finally { client.release(); }
+}
+
+async function reconcileAffPayment(p, force = false) {
+  if (!p || p.status === 'paid' || !p.request_id) return p;
+  const ageMs = Date.now() - new Date(p.created_at).getTime();
+  if (ageMs > 24 * 3600 * 1000) return p;
+  if (!force && p.last_checked_at && Date.now() - new Date(p.last_checked_at).getTime() < 4000) return p;
+  await pool.query(`UPDATE trv_aff_payments SET last_checked_at = NOW() WHERE id = $1`, [p.id]);
+  let r;
+  try { r = await pesafluxCall('/v1/transactionstatus', { transaction_request_id: p.request_id }); }
+  catch (e) { console.error('pesaflux status error (affiliate):', e.message); return p; }
+  const j = (r && r.json) || {};
+  const st = String(j.TransactionStatus || '').trim().toLowerCase();
+  const reload = async () => (await pool.query(`SELECT * FROM trv_aff_payments WHERE id = $1`, [p.id])).rows[0];
+  if (/^(completed?|success(ful)?)$/.test(st)) {
+    if (!(Number(j.TransactionAmount) >= p.amount)) {
+      await pool.query(`UPDATE trv_aff_payments SET status='failed', failure_reason='amount_mismatch', updated_at=NOW() WHERE id=$1 AND status<>'paid'`, [p.id]);
+      return await reload();
+    }
+    await settleAffPayment(p, String(j.TransactionReceipt || j.TransactionID || p.request_id).trim());
+    return await reload();
+  }
+  if (/fail|cancel|reject|timeout|expire|insufficient|declin/.test(st)) {
+    await pool.query(`UPDATE trv_aff_payments SET status='failed', failure_reason=$2, updated_at=NOW() WHERE id=$1 AND status<>'paid'`, [p.id, st.slice(0, 60)]);
+    return await reload();
+  }
+  if (p.status === 'pending' && ageMs > PAYMENT_PENDING_MAX_MS) {
+    await pool.query(`UPDATE trv_aff_payments SET status='expired', failure_reason='no_response', updated_at=NOW() WHERE id=$1 AND status<>'paid'`, [p.id]);
+    return await reload();
+  }
+  return p;
+}
+
 // ====================== Premium routes ======================
 
 // Where does this phone stand? Called by the app after boot, on resume, and when a trial ends.
@@ -1266,6 +1191,7 @@ app.post('/entitlement', verifyLimiter, deviceAuth, async (req, res) => {
     syncStoredStatus(row, ent.state);
     ent.phone_masked = maskPhone(phone);
     ent.pending_payment = pending && pending.status === 'pending' ? { id: pending.id, amount: pending.amount, kind: pending.kind } : null;
+    ent.has_referral = !!(await referralOf(phone));
     return res.json(ent);
   } catch (e) {
     console.error('entitlement error:', e);
@@ -1329,6 +1255,13 @@ app.post('/pay/checkout', payLimiter, deviceAuth, async (req, res) => {
     if (!isValidKenyanPhone(msisdnRaw)) return res.status(400).json({ error: 'Enter a valid Safaricom M-Pesa number.' });
     const msisdn = normalizeKenyanPhone(msisdnRaw);
 
+    // Optional referral code typed on the payment screen (only counts before the first payment).
+    if (req.body && req.body.ref != null && String(req.body.ref).trim() !== '') {
+      const rr = await resolveReferral(phone, req.body.ref, 'payment');
+      if (!rr.ok) return res.status(400).json({ code: 'bad_referral', error: rr.error });
+      if (!rr.existing) await attachReferral(phone, rr.affiliate, 'payment');
+    }
+
     // Don't fire a second prompt while one is still open for the same thing.
     const open = await pool.query(
       `SELECT * FROM trv_payments WHERE phone = $1 AND status = 'pending' AND plan = $2 AND kind = $3 AND amount = $4 AND created_at > $5
@@ -1390,12 +1323,218 @@ app.post('/pay/callback', callbackLimiter, async (req, res) => {
   try {
     const b = req.body || {};
     const ref = String(b.TransactionReference || b.reference || '').trim();
-    if (!/^(TRVPAY|TRVAF)[A-F0-9]{10}$/.test(ref)) return;
+    if (/^TRVAFF[A-F0-9]{10}$/.test(ref)) {
+      const ap = (await pool.query(`SELECT * FROM trv_aff_payments WHERE id = $1`, [ref])).rows[0];
+      if (ap && ap.status !== 'paid') await reconcileAffPayment(ap, true);
+      return;
+    }
+    if (!/^TRVPAY[A-F0-9]{10}$/.test(ref)) return;
     const p = await loadPayment(ref);
     if (p && p.status !== 'paid') await reconcilePayment(p, true);
   } catch (e) {
     console.error('pay/callback error:', e);
   }
+});
+
+// ====================== Affiliate routes (login with the existing /login token) ======================
+const affLimiter = rateLimit({ windowMs: 60 * 1000, max: 60, standardHeaders: true, legacyHeaders: false });
+
+async function loadAffiliate(userId) {
+  const r = await pool.query(`SELECT * FROM trv_affiliates WHERE user_id = $1`, [userId]);
+  return r.rows[0] || null;
+}
+
+// Everything the dashboard shows, in one call.
+app.get('/aff/me', affLimiter, auth, async (req, res) => {
+  try {
+    const uid = String(req.user.id);
+    const u = (await pool.query(`SELECT full_name, phone FROM users WHERE id::text = $1`, [uid])).rows[0];
+    if (!u) return res.status(401).json({ error: 'Account not found' });
+
+    // A join payment that completed a moment ago (late webhook) must count before we answer.
+    const pend = (await pool.query(
+      `SELECT * FROM trv_aff_payments WHERE user_id = $1 AND status IN ('pending','expired') AND created_at > $2
+        ORDER BY created_at DESC LIMIT 1`, [uid, new Date(Date.now() - 24 * 3600 * 1000)])).rows[0];
+    const pendNow = pend ? await reconcileAffPayment(pend) : null;
+
+    const a = await loadAffiliate(uid);
+    const { lastCutoff, nextCutoff } = payoutWindow();
+    const base = {
+      profile: { fullName: u.full_name, phone: u.phone },
+      fee: AFFILIATE_FEE_KES,
+      rates: { personal: COMMISSION_PERSONAL_KES, business: COMMISSION_BUSINESS_KES },
+      prices: { personal: PRICE_PERSONAL, business: PRICE_BUSINESS },
+      app_url: APP_PUBLIC_URL,
+      server_now: new Date().toISOString(),
+      pending_payment: pendNow && pendNow.status === 'pending' ? { id: pendNow.id } : null
+    };
+    if (!a) return res.json({ ...base, affiliate: null });
+
+    const st = (await pool.query(
+      `SELECT COALESCE(SUM(commission),0)::int AS total,
+              COALESCE(SUM(commission) FILTER (WHERE payout_id IS NULL AND created_at <  $2),0)::int AS payable,
+              COALESCE(SUM(commission) FILTER (WHERE payout_id IS NULL AND created_at >= $2),0)::int AS accruing,
+              COALESCE(SUM(commission) FILTER (WHERE payout_id IS NOT NULL),0)::int AS paid_out,
+              COUNT(*)::int AS payments, COUNT(DISTINCT customer_phone)::int AS customers
+         FROM trv_commissions WHERE affiliate_id = $1`, [a.id, lastCutoff])).rows[0];
+    const signups = (await pool.query(`SELECT COUNT(*)::int AS n FROM trv_referrals WHERE affiliate_id = $1`, [a.id])).rows[0].n;
+    const comm = (await pool.query(
+      `SELECT customer_phone, plan, kind, amount_paid, commission, created_at, payout_id
+         FROM trv_commissions WHERE affiliate_id = $1 ORDER BY created_at DESC LIMIT 50`, [a.id])).rows;
+    const refs = (await pool.query(
+      `SELECT r.phone, r.created_at, r.source,
+              EXISTS (SELECT 1 FROM trv_commissions c WHERE c.affiliate_id = r.affiliate_id AND c.customer_phone = r.phone) AS paying
+         FROM trv_referrals r WHERE r.affiliate_id = $1 ORDER BY r.created_at DESC LIMIT 30`, [a.id])).rows;
+    const payouts = (await pool.query(
+      `SELECT amount, reference, paid_at FROM trv_payouts WHERE affiliate_id = $1 ORDER BY paid_at DESC LIMIT 20`, [a.id])).rows;
+
+    return res.json({
+      ...base,
+      affiliate: {
+        code: a.code, display_code: showRefCode(a.code), joined_at: a.joined_at,
+        payout_phone: a.payout_phone || u.phone
+      },
+      stats: { ...st, signups, balance: st.payable + st.accruing },
+      schedule: {
+        timezone: 'EAT (UTC+3)',
+        week_started: lastCutoff.toISOString(),
+        next_cutoff: nextCutoff.toISOString(),
+        rule: 'Earnings made before Friday 00:00 are paid that Friday. Friday and later go to the next Friday.'
+      },
+      commissions: comm.map((c) => ({
+        customer: maskPhone(c.customer_phone), plan: c.plan, kind: c.kind, amount_paid: c.amount_paid,
+        commission: c.commission, at: c.created_at,
+        status: c.payout_id ? 'paid' : (new Date(c.created_at) < lastCutoff ? 'payable' : 'accruing')
+      })),
+      referrals: refs.map((r) => ({ customer: maskPhone(r.phone), at: r.created_at, source: r.source, paying: r.paying })),
+      payouts
+    });
+  } catch (e) {
+    console.error('aff/me error:', e);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Pay the one-off KES 50 to become an affiliate (M-Pesa prompt through PesaFlux).
+app.post('/aff/join', payLimiter, auth, async (req, res) => {
+  if (!process.env.PESAFLUX_API_KEY || !process.env.PESAFLUX_EMAIL) {
+    return res.status(503).json({ code: 'PAYMENTS_NOT_CONFIGURED', error: 'Payments are not available right now. Please contact support.' });
+  }
+  try {
+    const uid = String(req.user.id);
+    if (await loadAffiliate(uid)) return res.status(409).json({ code: 'ALREADY_AFFILIATE', error: 'You are already an affiliate.' });
+    const u = (await pool.query(`SELECT phone FROM users WHERE id::text = $1`, [uid])).rows[0];
+    if (!u) return res.status(401).json({ error: 'Account not found' });
+    const raw = req.body && req.body.msisdn ? sanitizePhone(req.body.msisdn) : sanitizePhone(u.phone);
+    if (!isValidKenyanPhone(raw)) return res.status(400).json({ error: 'Enter a valid Safaricom M-Pesa number.' });
+    const msisdn = normalizeKenyanPhone(raw);
+
+    const open = (await pool.query(
+      `SELECT * FROM trv_aff_payments WHERE user_id = $1 AND status = 'pending' AND created_at > $2 ORDER BY created_at DESC LIMIT 1`,
+      [uid, new Date(Date.now() - 3 * 60 * 1000)])).rows[0];
+    if (open) return res.json({ payment_id: open.id, status: 'pending', amount: open.amount, reused: true });
+
+    const id = 'TRVAFF' + crypto.randomBytes(5).toString('hex').toUpperCase();
+    await pool.query(`INSERT INTO trv_aff_payments (id, user_id, amount, msisdn, ip) VALUES ($1, $2, $3, $4, $5)`,
+      [id, uid, AFFILIATE_FEE_KES, msisdn, req.ip]);
+    let r;
+    try { r = await pesafluxCall('/v1/initiatestk', { amount: AFFILIATE_FEE_KES, msisdn, reference: id }); }
+    catch (e) {
+      console.error('pesaflux initiate error (affiliate):', e.message);
+      await pool.query(`UPDATE trv_aff_payments SET status='failed', failure_reason='provider_unreachable', updated_at=NOW() WHERE id=$1`, [id]);
+      return res.status(502).json({ code: 'PAYMENT_PROVIDER_ERROR', error: 'Could not reach M-Pesa. Please try again.' });
+    }
+    const j = (r && r.json) || {};
+    if (String(j.success) !== '200' || !j.transaction_request_id) {
+      await pool.query(`UPDATE trv_aff_payments SET status='failed', failure_reason='provider_rejected', updated_at=NOW() WHERE id=$1`, [id]);
+      return res.status(502).json({ code: 'PAYMENT_PROVIDER_ERROR', error: 'Could not start the M-Pesa prompt. Check the number and try again.' });
+    }
+    await pool.query(`UPDATE trv_aff_payments SET request_id = $2, updated_at = NOW() WHERE id = $1`, [id, String(j.transaction_request_id)]);
+    return res.json({ payment_id: id, status: 'pending', amount: AFFILIATE_FEE_KES });
+  } catch (e) {
+    console.error('aff/join error:', e);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.post('/aff/join/status', affLimiter, auth, async (req, res) => {
+  try {
+    const uid = String(req.user.id);
+    const id = String((req.body && req.body.payment_id) || '');
+    let p = (await pool.query(`SELECT * FROM trv_aff_payments WHERE id = $1`, [id])).rows[0];
+    if (!p || p.user_id !== uid) return res.status(404).json({ status: 'unknown' });
+    p = await reconcileAffPayment(p);
+    const a = await loadAffiliate(uid);
+    return res.json({ status: a ? 'paid' : p.status, failure_reason: p.status === 'failed' ? p.failure_reason : null, affiliate: a ? { code: a.code, display_code: showRefCode(a.code) } : null });
+  } catch (e) {
+    console.error('aff/join/status error:', e);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Where the weekly payout is sent (defaults to the account's phone).
+app.post('/aff/payout-phone', affLimiter, auth, async (req, res) => {
+  try {
+    const a = await loadAffiliate(String(req.user.id));
+    if (!a) return res.status(403).json({ error: 'Become an affiliate first.' });
+    const raw = sanitizePhone(req.body && req.body.phone);
+    if (!isValidKenyanPhone(raw)) return res.status(400).json({ error: 'Enter a valid Safaricom M-Pesa number.' });
+    await pool.query(`UPDATE trv_affiliates SET payout_phone = $2 WHERE id = $1`, [a.id, normalizeKenyanPhone(raw)]);
+    return res.json({ ok: true, payout_phone: normalizeKenyanPhone(raw) });
+  } catch (e) {
+    console.error('aff/payout-phone error:', e);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ---- Admin: who is due, and mark them paid (you send the M-Pesa yourself, then record it) ----
+function adminOnly(req, res) {
+  const secret = req.headers['x-admin-secret'];
+  if (!process.env.ADMIN_SECRET || secret !== process.env.ADMIN_SECRET) { res.status(401).json({ error: 'Unauthorized' }); return false; }
+  return true;
+}
+app.post('/admin/aff/due', adminLimiter, async (req, res) => {
+  if (!adminOnly(req, res)) return;
+  try {
+    const { lastCutoff } = payoutWindow();
+    const r = await pool.query(
+      `SELECT a.id, a.code, COALESCE(a.payout_phone, u.phone) AS pay_to, u.full_name,
+              SUM(c.commission)::int AS payable, COUNT(*)::int AS payments
+         FROM trv_commissions c JOIN trv_affiliates a ON a.id = c.affiliate_id
+         LEFT JOIN users u ON u.id::text = a.user_id
+        WHERE c.payout_id IS NULL AND c.created_at < $1
+        GROUP BY a.id, a.code, a.payout_phone, u.phone, u.full_name ORDER BY payable DESC`, [lastCutoff]);
+    return res.json({ cutoff: lastCutoff.toISOString(), due: r.rows });
+  } catch (e) {
+    console.error('admin/aff/due error:', e);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+app.post('/admin/aff/pay', adminLimiter, async (req, res) => {
+  if (!adminOnly(req, res)) return;
+  const affiliateId = parseInt(req.body && req.body.affiliate_id, 10);
+  const reference = String((req.body && req.body.reference) || '').trim().slice(0, 60);
+  if (!affiliateId || !reference) return res.status(400).json({ error: 'affiliate_id and the M-Pesa reference you paid with are required' });
+  const client = await pool.connect();
+  try {
+    const { lastCutoff } = payoutWindow();
+    await client.query('BEGIN');
+    const rows = (await client.query(
+      `SELECT id, commission FROM trv_commissions WHERE affiliate_id = $1 AND payout_id IS NULL AND created_at < $2 FOR UPDATE`,
+      [affiliateId, lastCutoff])).rows;
+    if (!rows.length) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Nothing payable for that affiliate (already paid, or earned after this Friday\'s cutoff).' }); }
+    const total = rows.reduce((n, r) => n + r.commission, 0);
+    const p = (await client.query(
+      `INSERT INTO trv_payouts (affiliate_id, amount, cutoff, reference) VALUES ($1, $2, $3, $4) RETURNING id`,
+      [affiliateId, total, lastCutoff, reference])).rows[0];
+    await client.query(`UPDATE trv_commissions SET payout_id = $1 WHERE id = ANY($2::bigint[])`, [p.id, rows.map((r) => r.id)]);
+    await client.query('COMMIT');
+    return res.json({ ok: true, paid: total, payments: rows.length, payout_id: p.id });
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('admin/aff/pay error:', e);
+    return res.status(500).json({ error: 'Server error' });
+  } finally { client.release(); }
 });
 
 // ====================== WhatsApp ownership check ======================
@@ -1614,6 +1753,12 @@ button.d{background:#C42B1C}
 <p class="n">Frees the number. The person must register again. Their data on their own phone is untouched.</p>
 <input id="r-phone" placeholder="Phone number" inputmode="tel">
 <button id="revoke" class="d">Revoke</button></div>
+<div class="c"><h2>4. Affiliate payouts due</h2>
+<p class="n">Shows what each affiliate earned before the last Friday 00:00 (Nairobi). Send the M-Pesa yourself, then type the affiliate ID and your M-Pesa reference to record it.</p>
+<button id="due">Load payouts due</button>
+<input id="p-id" placeholder="Affiliate ID" inputmode="numeric">
+<input id="p-ref" placeholder="Your M-Pesa reference for the payout">
+<button id="paid">Mark paid</button></div>
 <script>
 var $=function(i){return document.getElementById(i)};
 function show(ok,m){var o=$('out');o.className=ok?'ok':'bad';o.textContent=m}
@@ -1641,6 +1786,19 @@ $('lookup').onclick=async function(){
   var d=r.j;
   if(!d.registered){show(true,'No device has ever been registered for this number.');return}
   show(true,'Status: '+d.state+'\nActivation: '+d.activation_status+'\nRegistered: '+d.issued_at+'\nLast seen: '+(d.last_seen_at||'never')+'\nExpires: '+d.expires_at+(d.revoked_at?'\nRevoked: '+d.revoked_at:'')+'\nPending verification requests: '+d.pending_requests);
+};
+$('due').onclick=async function(){
+  var r=await call('/admin/aff/due',{});if(!r)return;
+  if(r.s!==200){show(false,r.j.error||('Failed ('+r.s+')'));return}
+  if(!r.j.due.length){show(true,'Nothing payable right now.');return}
+  show(true,r.j.due.map(function(d){return 'ID '+d.id+'  '+(d.full_name||'')+'  '+d.code+'\nPay '+d.pay_to+'  KES '+d.payable+'  ('+d.payments+' payments)'}).join('\n\n'));
+};
+$('paid').onclick=async function(){
+  var id=$('p-id').value.trim(),ref=$('p-ref').value.trim();
+  if(!id||!ref){show(false,'Enter the affiliate ID and your M-Pesa reference.');return}
+  if(!confirm('Record payout for affiliate '+id+' with reference '+ref+'?'))return;
+  var r=await call('/admin/aff/pay',{affiliate_id:id,reference:ref});if(!r)return;
+  show(r.s===200,r.s===200?('Recorded: KES '+r.j.paid+' ('+r.j.payments+' payments).'):(r.j.error||('Failed ('+r.s+')')));
 };
 $('revoke').onclick=async function(){
   var phone=$('r-phone').value.trim();if(!phone){show(false,'Enter a phone number.');return}
