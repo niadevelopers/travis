@@ -1126,8 +1126,18 @@ async function settleAffPayment(p, receipt) {
       `UPDATE trv_aff_payments SET status = 'paid', paid_at = $2, updated_at = $2, receipt = $3, failure_reason = NULL
         WHERE id = $1 AND status <> 'paid' RETURNING *`, [p.id, now, receipt]);
     if (!upd.rows[0]) { await client.query('ROLLBACK'); return null; }
-    const clash = await client.query(`SELECT 1 FROM trv_payments WHERE receipt = $1`, [receipt]);
-    if (clash.rowCount) { await client.query('ROLLBACK'); await pool.query(`UPDATE trv_aff_payments SET status='failed', failure_reason='receipt_reused', updated_at=NOW() WHERE id=$1 AND status<>'paid'`, [p.id]); return null; }
+    // Only reject if ANOTHER affiliate fee already used this receipt.
+    // A receipt from a customer premium payment (trv_payments) is a different
+    // transaction and must not block affiliate activation.
+    const clash = await client.query(
+      `SELECT 1 FROM trv_aff_payments WHERE receipt = $1 AND id <> $2`, [receipt, p.id]);
+    if (clash.rowCount) {
+      await client.query('ROLLBACK');
+      await pool.query(
+        `UPDATE trv_aff_payments SET status='failed', failure_reason='receipt_reused', updated_at=NOW() WHERE id=$1 AND status<>'paid'`,
+        [p.id]);
+      return null;
+    }
     for (let i = 0; i < 6; i++) {
       await client.query('SAVEPOINT newcode');
       try {
@@ -1553,16 +1563,46 @@ app.post('/aff/join/status', affLimiter, auth, async (req, res) => {
   try {
     const uid = String(req.user.id);
     const id = String((req.body && req.body.payment_id) || '');
+
     let p = (await pool.query(`SELECT * FROM trv_aff_payments WHERE id = $1`, [id])).rows[0];
     if (!p || p.user_id !== uid) return res.status(404).json({ status: 'unknown' });
+
+    // Ask PesaFlux what really happened (works even if the webhook was lost).
     p = await reconcileAffPayment(p);
-    const a = await loadAffiliate(uid);
-    const fresh = (await pool.query(`SELECT status, failure_reason, last_error FROM trv_aff_payments WHERE id = $1`, [id])).rows[0] || p;
+
+    // Self-heal: if the fee is already marked paid but the affiliate row is
+    // missing (e.g. a race or an earlier activation error), create it now.
+    let a = await loadAffiliate(uid);
+    if (!a && p.status === 'paid') {
+      for (let i = 0; i < 6 && !a; i++) {
+        try {
+          await pool.query(
+            `INSERT INTO trv_affiliates (user_id, code, fee_payment_id)
+             VALUES ($1, $2, $3) ON CONFLICT (user_id) DO NOTHING`,
+            [uid, genAffCode(), p.id]
+          );
+        } catch (e) {
+          if (e.code !== '23505') {
+            console.error('aff/join/status: affiliate insert failed:', e.message);
+            break;
+          }
+        }
+        a = await loadAffiliate(uid);
+      }
+    }
+
+    const fresh = (await pool.query(
+      `SELECT status, failure_reason, last_error FROM trv_aff_payments WHERE id = $1`, [id]
+    )).rows[0] || p;
+
     const status = a ? 'paid' : fresh.status;
-    return res.json({ status, reference: id,
+    return res.json({
+      status,
+      reference: id,
       failure_reason: status === 'failed' ? fresh.failure_reason : null,
-      problem: !a && !!fresh.last_error,            // the server hit an error while finishing activation (see last_error in trv_aff_payments)
-      affiliate: a ? { code: a.code, display_code: showRefCode(a.code) } : null });
+      problem: !a && !!fresh.last_error,
+      affiliate: a ? { code: a.code, display_code: showRefCode(a.code) } : null
+    });
   } catch (e) {
     console.error('aff/join/status error:', e);
     return res.status(500).json({ error: 'Server error' });
