@@ -101,7 +101,7 @@ const PESAFLUX_BASE_URL = (process.env.PESAFLUX_BASE_URL || 'https://api.pesaflu
 const PAYMENT_PENDING_MAX_MS = 10 * 60 * 1000;
 
 // ---- Affiliates ----
-const AFFILIATE_FEE_KES = parseInt(process.env.AFFILIATE_FEE_KES, 10) || 50;
+const AFFILIATE_FEE_KES = parseInt(process.env.AFFILIATE_FEE_KES, 10) || 1;
 const COMMISSION_PERSONAL_KES = parseInt(process.env.COMMISSION_PERSONAL_KES, 10) || 49;
 const COMMISSION_BUSINESS_KES = parseInt(process.env.COMMISSION_BUSINESS_KES, 10) || 80;
 const APP_PUBLIC_URL = process.env.APP_PUBLIC_URL || 'https://travis-three.vercel.app/travis_core.html';
