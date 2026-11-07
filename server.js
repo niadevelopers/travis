@@ -1524,34 +1524,91 @@ app.post('/aff/join', payLimiter, auth, async (req, res) => {
   }
   try {
     const uid = String(req.user.id);
-    if (await loadAffiliate(uid)) return res.status(409).json({ code: 'ALREADY_AFFILIATE', error: 'You are already an affiliate.' });
+
+    // 1. Already an affiliate? Nothing to charge.
+    let a = await loadAffiliate(uid);
+    if (a) return res.status(409).json({ code: 'ALREADY_AFFILIATE', error: 'You are already an affiliate.' });
+
+    // 2. A paid fee already exists but the affiliate row is missing?
+    //    Self-heal, and DO NOT charge again.
+    const paidFee = (await pool.query(
+      `SELECT * FROM trv_aff_payments WHERE user_id = $1 AND status = 'paid' ORDER BY paid_at DESC LIMIT 1`,
+      [uid]
+    )).rows[0];
+    if (paidFee) {
+      for (let i = 0; i < 6 && !a; i++) {
+        try {
+          await pool.query(
+            `INSERT INTO trv_affiliates (user_id, code, fee_payment_id)
+             VALUES ($1, $2, $3) ON CONFLICT (user_id) DO NOTHING`,
+            [uid, genAffCode(), paidFee.id]
+          );
+        } catch (e) {
+          if (e.code !== '23505') throw e;   // code collision: draw another
+        }
+        a = await loadAffiliate(uid);
+      }
+      if (a) {
+        return res.json({
+          status: 'paid',
+          payment_id: paidFee.id,
+          affiliate: { code: a.code, display_code: showRefCode(a.code) }
+        });
+      }
+      // If we still cannot create the row, fall through to normal flow rather than
+      // charging silently — the failure will surface in logs.
+      console.error('aff/join: paid fee exists but could not create affiliate for', uid, 'fee', paidFee.id);
+    }
+
+    // 3. Normal path: load the user, validate the M-Pesa number, fire the STK.
     const u = (await pool.query(`SELECT phone FROM users WHERE id::text = $1`, [uid])).rows[0];
     if (!u) return res.status(401).json({ error: 'Account not found' });
+
     const raw = req.body && req.body.msisdn ? sanitizePhone(req.body.msisdn) : sanitizePhone(u.phone);
     if (!isValidKenyanPhone(raw)) return res.status(400).json({ error: 'Enter a valid Safaricom M-Pesa number.' });
     const msisdn = normalizeKenyanPhone(raw);
 
+    // 4. Don't fire a second prompt while one is still open for the same user.
     const open = (await pool.query(
-      `SELECT * FROM trv_aff_payments WHERE user_id = $1 AND status = 'pending' AND created_at > $2 ORDER BY created_at DESC LIMIT 1`,
-      [uid, new Date(Date.now() - 3 * 60 * 1000)])).rows[0];
+      `SELECT * FROM trv_aff_payments WHERE user_id = $1 AND status = 'pending' AND created_at > $2
+        ORDER BY created_at DESC LIMIT 1`,
+      [uid, new Date(Date.now() - 3 * 60 * 1000)]
+    )).rows[0];
     if (open) return res.json({ payment_id: open.id, status: 'pending', amount: open.amount, reused: true });
 
+    // 5. Create the payment row and ask PesaFlux to prompt the phone.
     const id = 'TRVAFF' + crypto.randomBytes(5).toString('hex').toUpperCase();
-    await pool.query(`INSERT INTO trv_aff_payments (id, user_id, amount, msisdn, ip) VALUES ($1, $2, $3, $4, $5)`,
-      [id, uid, AFFILIATE_FEE_KES, msisdn, req.ip]);
+    await pool.query(
+      `INSERT INTO trv_aff_payments (id, user_id, amount, msisdn, ip) VALUES ($1, $2, $3, $4, $5)`,
+      [id, uid, AFFILIATE_FEE_KES, msisdn, req.ip]
+    );
+
     let r;
-    try { r = await pesafluxCall('/v1/initiatestk', { amount: AFFILIATE_FEE_KES, msisdn, reference: id }); }
-    catch (e) {
+    try {
+      r = await pesafluxCall('/v1/initiatestk', { amount: AFFILIATE_FEE_KES, msisdn, reference: id });
+    } catch (e) {
       console.error('pesaflux initiate error (affiliate):', e.message);
-      await pool.query(`UPDATE trv_aff_payments SET status='failed', failure_reason='provider_unreachable', updated_at=NOW() WHERE id=$1`, [id]);
+      await pool.query(
+        `UPDATE trv_aff_payments SET status='failed', failure_reason='provider_unreachable', updated_at=NOW() WHERE id=$1`,
+        [id]
+      );
       return res.status(502).json({ code: 'PAYMENT_PROVIDER_ERROR', error: 'Could not reach M-Pesa. Please try again.' });
     }
+
     const j = (r && r.json) || {};
     if (String(j.success) !== '200' || !j.transaction_request_id) {
-      await pool.query(`UPDATE trv_aff_payments SET status='failed', failure_reason='provider_rejected', updated_at=NOW() WHERE id=$1`, [id]);
+      console.error('pesaflux initiate rejected (affiliate):', r && r.status, JSON.stringify(j).slice(0, 200));
+      await pool.query(
+        `UPDATE trv_aff_payments SET status='failed', failure_reason='provider_rejected', updated_at=NOW() WHERE id=$1`,
+        [id]
+      );
       return res.status(502).json({ code: 'PAYMENT_PROVIDER_ERROR', error: 'Could not start the M-Pesa prompt. Check the number and try again.' });
     }
-    await pool.query(`UPDATE trv_aff_payments SET request_id = $2, updated_at = NOW() WHERE id = $1`, [id, String(j.transaction_request_id)]);
+
+    await pool.query(
+      `UPDATE trv_aff_payments SET request_id = $2, updated_at = NOW() WHERE id = $1`,
+      [id, String(j.transaction_request_id)]
+    );
     return res.json({ payment_id: id, status: 'pending', amount: AFFILIATE_FEE_KES });
   } catch (e) {
     console.error('aff/join error:', e);
