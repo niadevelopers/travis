@@ -1364,16 +1364,63 @@ async function loadAffiliate(userId) {
 app.get('/aff/me', affLimiter, auth, async (req, res) => {
   try {
     const uid = String(req.user.id);
-    const u = (await pool.query(`SELECT full_name, phone FROM users WHERE id::text = $1`, [uid])).rows[0];
+
+    const u = (await pool.query(
+      `SELECT id, full_name, phone FROM users WHERE id::text = $1 LIMIT 1`, [uid]
+    )).rows[0];
     if (!u) return res.status(401).json({ error: 'Account not found' });
 
-    // A join payment that completed a moment ago (late webhook) must count before we answer.
+    // Reconcile any join payment that completed a moment ago (late webhook).
     const pend = (await pool.query(
-      `SELECT * FROM trv_aff_payments WHERE user_id = $1 AND status IN ('pending','expired','failed') AND created_at > $2
-        ORDER BY created_at DESC LIMIT 1`, [uid, new Date(Date.now() - 24 * 3600 * 1000)])).rows[0];
+      `SELECT * FROM trv_aff_payments
+        WHERE user_id = $1 AND status IN ('pending','expired','failed') AND created_at > $2
+        ORDER BY created_at DESC LIMIT 1`,
+      [uid, new Date(Date.now() - 24 * 3600 * 1000)]
+    )).rows[0];
     const pendNow = pend ? await reconcileAffPayment(pend) : null;
 
-    const a = await loadAffiliate(uid);
+    // Robust affiliate lookup:
+    //   1) by user_id (the normal path)
+    //   2) by the user's phone appearing as payout_phone
+    //   3) by an existing paid affiliate-fee payment for this user
+    let a = await loadAffiliate(uid);
+
+    if (!a && u.phone) {
+      const byPhone = await pool.query(
+        `SELECT * FROM trv_affiliates
+          WHERE payout_phone = $1 OR payout_phone = $2
+          ORDER BY joined_at DESC LIMIT 1`,
+        [normalizeKenyanPhone(u.phone), sanitizePhone(u.phone)]
+      );
+      a = byPhone.rows[0] || null;
+    }
+
+    if (!a) {
+      const paidFee = (await pool.query(
+        `SELECT * FROM trv_aff_payments
+          WHERE user_id = $1 AND status = 'paid'
+          ORDER BY paid_at DESC LIMIT 1`, [uid]
+      )).rows[0];
+      if (paidFee) {
+        // Self-heal: the affiliate row is missing although the fee was paid.
+        // Re-create it (idempotent on user_id) using the fee payment as proof.
+        for (let i = 0; i < 6 && !a; i++) {
+          try {
+            await pool.query(
+              `INSERT INTO trv_affiliates (user_id, code, fee_payment_id)
+               VALUES ($1, $2, $3)
+               ON CONFLICT (user_id) DO NOTHING`,
+              [uid, genAffCode(), paidFee.id]
+            );
+          } catch (e) {
+            if (e.code !== '23505') throw e; // code collision: draw another
+          }
+          a = await loadAffiliate(uid);
+        }
+        if (!a) console.error('aff/me: could not recreate affiliate for', uid, '(fee', paidFee.id + ')');
+      }
+    }
+
     const { lastCutoff, nextCutoff } = payoutWindow();
     const base = {
       profile: { fullName: u.full_name, phone: u.phone },
@@ -1384,7 +1431,11 @@ app.get('/aff/me', affLimiter, auth, async (req, res) => {
       server_now: new Date().toISOString(),
       pending_payment: pendNow && pendNow.status === 'pending' ? { id: pendNow.id } : null
     };
-    if (!a) return res.json({ ...base, affiliate: null });
+
+    if (!a) {
+      // Genuinely not an affiliate yet.
+      return res.json({ ...base, affiliate: null });
+    }
 
     const st = (await pool.query(
       `SELECT COALESCE(SUM(commission),0)::int AS total,
@@ -1392,22 +1443,38 @@ app.get('/aff/me', affLimiter, auth, async (req, res) => {
               COALESCE(SUM(commission) FILTER (WHERE payout_id IS NULL AND created_at >= $2),0)::int AS accruing,
               COALESCE(SUM(commission) FILTER (WHERE payout_id IS NOT NULL),0)::int AS paid_out,
               COUNT(*)::int AS payments, COUNT(DISTINCT customer_phone)::int AS customers
-         FROM trv_commissions WHERE affiliate_id = $1`, [a.id, lastCutoff])).rows[0];
-    const signups = (await pool.query(`SELECT COUNT(*)::int AS n FROM trv_referrals WHERE affiliate_id = $1`, [a.id])).rows[0].n;
+         FROM trv_commissions WHERE affiliate_id = $1`, [a.id, lastCutoff]
+    )).rows[0];
+
+    const signups = (await pool.query(
+      `SELECT COUNT(*)::int AS n FROM trv_referrals WHERE affiliate_id = $1`, [a.id]
+    )).rows[0].n;
+
     const comm = (await pool.query(
       `SELECT customer_phone, plan, kind, amount_paid, commission, created_at, payout_id
-         FROM trv_commissions WHERE affiliate_id = $1 ORDER BY created_at DESC LIMIT 50`, [a.id])).rows;
+         FROM trv_commissions WHERE affiliate_id = $1
+        ORDER BY created_at DESC LIMIT 50`, [a.id]
+    )).rows;
+
     const refs = (await pool.query(
       `SELECT r.phone, r.created_at, r.source,
-              EXISTS (SELECT 1 FROM trv_commissions c WHERE c.affiliate_id = r.affiliate_id AND c.customer_phone = r.phone) AS paying
-         FROM trv_referrals r WHERE r.affiliate_id = $1 ORDER BY r.created_at DESC LIMIT 30`, [a.id])).rows;
+              EXISTS (SELECT 1 FROM trv_commissions c
+                       WHERE c.affiliate_id = r.affiliate_id AND c.customer_phone = r.phone) AS paying
+         FROM trv_referrals r WHERE r.affiliate_id = $1
+        ORDER BY r.created_at DESC LIMIT 30`, [a.id]
+    )).rows;
+
     const payouts = (await pool.query(
-      `SELECT amount, reference, paid_at FROM trv_payouts WHERE affiliate_id = $1 ORDER BY paid_at DESC LIMIT 20`, [a.id])).rows;
+      `SELECT amount, reference, paid_at FROM trv_payouts
+        WHERE affiliate_id = $1 ORDER BY paid_at DESC LIMIT 20`, [a.id]
+    )).rows;
 
     return res.json({
       ...base,
       affiliate: {
-        code: a.code, display_code: showRefCode(a.code), joined_at: a.joined_at,
+        code: a.code,
+        display_code: showRefCode(a.code),
+        joined_at: a.joined_at,
         payout_phone: a.payout_phone || u.phone
       },
       stats: { ...st, signups, balance: st.payable + st.accruing },
@@ -1418,11 +1485,20 @@ app.get('/aff/me', affLimiter, auth, async (req, res) => {
         rule: 'Earnings made before Friday 00:00 are paid that Friday. Friday and later go to the next Friday.'
       },
       commissions: comm.map((c) => ({
-        customer: maskPhone(c.customer_phone), plan: c.plan, kind: c.kind, amount_paid: c.amount_paid,
-        commission: c.commission, at: c.created_at,
+        customer: maskPhone(c.customer_phone),
+        plan: c.plan,
+        kind: c.kind,
+        amount_paid: c.amount_paid,
+        commission: c.commission,
+        at: c.created_at,
         status: c.payout_id ? 'paid' : (new Date(c.created_at) < lastCutoff ? 'payable' : 'accruing')
       })),
-      referrals: refs.map((r) => ({ customer: maskPhone(r.phone), at: r.created_at, source: r.source, paying: r.paying })),
+      referrals: refs.map((r) => ({
+        customer: maskPhone(r.phone),
+        at: r.created_at,
+        source: r.source,
+        paying: r.paying
+      })),
       payouts
     });
   } catch (e) {
