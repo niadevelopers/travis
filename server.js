@@ -109,7 +109,7 @@ console.log(`ℹ️  WhatsApp verification: ${!WA_NUMBER ? 'NOT configured (set 
 const PRICE_PERSONAL = parseInt(process.env.PRICE_PERSONAL_KES, 10) || 250;     // KES
 const PRICE_BUSINESS = parseInt(process.env.PRICE_BUSINESS_KES, 10) || 500;     // KES
 const PREMIUM_PERIOD_DAYS = parseInt(process.env.PREMIUM_PERIOD_DAYS, 10) || 30; // how long one payment lasts
-const TRIAL_MINUTES = parseFloat(process.env.TRIAL_MINUTES) || 30;                // free mode length. TESTING = 2. PRODUCTION: change 2 to 30 (or set the TRIAL_MINUTES env var)
+const TRIAL_MINUTES = parseFloat(process.env.TRIAL_MINUTES) || 2;                // free mode length. TESTING = 2. PRODUCTION: change 2 to 30 (or set the TRIAL_MINUTES env var)
 const TRIAL_MAX_PER_IP_PER_DAY = parseInt(process.env.TRIAL_MAX_PER_IP_PER_DAY, 10) || 20;
 const PESAFLUX_BASE_URL = (process.env.PESAFLUX_BASE_URL || 'https://api.pesaflux.co.ke').replace(/\/+$/, '');
 const PAYMENT_PENDING_MAX_MS = 10 * 60 * 1000;   // an unanswered M-Pesa prompt is treated as expired after this
@@ -278,6 +278,7 @@ pool.query('SELECT NOW()')
           last_checked_at TIMESTAMPTZ,
           ip              TEXT
         )`);
+      await pool.query(`ALTER TABLE trv_aff_payments ADD COLUMN IF NOT EXISTS last_error TEXT`);
       await pool.query(`
         CREATE TABLE IF NOT EXISTS trv_referrals (
           phone        TEXT PRIMARY KEY,
@@ -573,6 +574,7 @@ async function settlePayment(p, receipt) {
 // Fail-closed: access is granted only on a clearly completed payment of at least the right amount.
 async function reconcilePayment(p, force = false) {
   if (!p || p.status === 'paid' || !p.request_id) return p;
+  if (p.status === 'failed' && !recoverableFail(p)) return p;
   const ageMs = Date.now() - new Date(p.created_at).getTime();
   if (ageMs > 24 * 3600 * 1000) return p;
   if (!force && p.last_checked_at && Date.now() - new Date(p.last_checked_at).getTime() < 4000) return p;
@@ -612,7 +614,7 @@ async function reconcilePayment(p, force = false) {
 // Latest unsettled payment for a phone (checked against PesaFlux, so a delayed callback never matters).
 async function refreshPendingPayment(phone) {
   const r = await pool.query(
-    `SELECT * FROM trv_payments WHERE phone = $1 AND status IN ('pending','expired') AND created_at > $2
+    `SELECT * FROM trv_payments WHERE phone = $1 AND status IN ('pending','expired','failed') AND created_at > $2
       ORDER BY created_at DESC LIMIT 1`,
     [phone, new Date(Date.now() - 24 * 3600 * 1000)]
   );
@@ -1148,8 +1150,22 @@ async function settleAffPayment(p, receipt) {
   } finally { client.release(); }
 }
 
+// A payment marked failed only because of a status WORD from PesaFlux (not an amount/receipt/provider problem)
+// is re-checked for 2 hours: money that really arrived must always be honoured.
+const HARD_FAIL_REASONS = ['amount_mismatch', 'receipt_reused', 'provider_unreachable', 'provider_rejected'];
+const recoverableFail = (p) => p.status === 'failed' && !HARD_FAIL_REASONS.includes(p.failure_reason) && (Date.now() - new Date(p.updated_at).getTime()) < 2 * 3600 * 1000;
+
 async function reconcileAffPayment(p, force = false) {
+  try { return await reconcileAffPaymentInner(p, force); }
+  catch (e) {
+    console.error('affiliate payment confirm FAILED for', p && p.id, '-', e.message, e.detail || '');
+    if (p && p.id) await pool.query(`UPDATE trv_aff_payments SET last_error = $2 WHERE id = $1`, [p.id, String(e.message || e).slice(0, 300)]).catch(() => {});
+    return p;
+  }
+}
+async function reconcileAffPaymentInner(p, force = false) {
   if (!p || p.status === 'paid' || !p.request_id) return p;
+  if (p.status === 'failed' && !recoverableFail(p)) return p;
   const ageMs = Date.now() - new Date(p.created_at).getTime();
   if (ageMs > 24 * 3600 * 1000) return p;
   if (!force && p.last_checked_at && Date.now() - new Date(p.last_checked_at).getTime() < 4000) return p;
@@ -1353,7 +1369,7 @@ app.get('/aff/me', affLimiter, auth, async (req, res) => {
 
     // A join payment that completed a moment ago (late webhook) must count before we answer.
     const pend = (await pool.query(
-      `SELECT * FROM trv_aff_payments WHERE user_id = $1 AND status IN ('pending','expired') AND created_at > $2
+      `SELECT * FROM trv_aff_payments WHERE user_id = $1 AND status IN ('pending','expired','failed') AND created_at > $2
         ORDER BY created_at DESC LIMIT 1`, [uid, new Date(Date.now() - 24 * 3600 * 1000)])).rows[0];
     const pendNow = pend ? await reconcileAffPayment(pend) : null;
 
@@ -1465,7 +1481,12 @@ app.post('/aff/join/status', affLimiter, auth, async (req, res) => {
     if (!p || p.user_id !== uid) return res.status(404).json({ status: 'unknown' });
     p = await reconcileAffPayment(p);
     const a = await loadAffiliate(uid);
-    return res.json({ status: a ? 'paid' : p.status, failure_reason: p.status === 'failed' ? p.failure_reason : null, affiliate: a ? { code: a.code, display_code: showRefCode(a.code) } : null });
+    const fresh = (await pool.query(`SELECT status, failure_reason, last_error FROM trv_aff_payments WHERE id = $1`, [id])).rows[0] || p;
+    const status = a ? 'paid' : fresh.status;
+    return res.json({ status, reference: id,
+      failure_reason: status === 'failed' ? fresh.failure_reason : null,
+      problem: !a && !!fresh.last_error,            // the server hit an error while finishing activation (see last_error in trv_aff_payments)
+      affiliate: a ? { code: a.code, display_code: showRefCode(a.code) } : null });
   } catch (e) {
     console.error('aff/join/status error:', e);
     return res.status(500).json({ error: 'Server error' });
@@ -1493,6 +1514,45 @@ function adminOnly(req, res) {
   if (!process.env.ADMIN_SECRET || secret !== process.env.ADMIN_SECRET) { res.status(401).json({ error: 'Unauthorized' }); return false; }
   return true;
 }
+// Diagnose / repair an affiliate fee that was paid but did not activate.
+//  - default: asks PesaFlux again, tries to settle, and returns PesaFlux's raw answer plus any error text.
+//  - mark_paid + receipt: you have seen the M-Pesa confirmation yourself; activates without asking PesaFlux.
+app.post('/admin/aff/recheck', adminLimiter, async (req, res) => {
+  if (!adminOnly(req, res)) return;
+  try {
+    const b = req.body || {};
+    let p;
+    const id = String(b.payment_id || '').trim();
+    const phoneRaw = b.phone ? sanitizePhone(b.phone) : '';
+    if (id) p = (await pool.query(`SELECT * FROM trv_aff_payments WHERE id = $1`, [id])).rows[0];
+    else if (phoneRaw) {
+      const key = isValidKenyanPhone(phoneRaw) ? normalizeKenyanPhone(phoneRaw) : phoneRaw;
+      p = (await pool.query(
+        `SELECT p.* FROM trv_aff_payments p LEFT JOIN users u ON u.id::text = p.user_id
+          WHERE u.phone = $1 OR u.phone = $2 OR p.msisdn = $1 ORDER BY p.created_at DESC LIMIT 1`, [key, phoneRaw])).rows[0];
+    }
+    if (!p) return res.status(404).json({ error: 'No affiliate payment found for that number.' });
+    const before = { status: p.status, failure_reason: p.failure_reason, last_error: p.last_error };
+    let raw = null, err = null;
+    const errText = (e) => e.message + (e.detail ? ' (' + e.detail + ')' : '');
+    if (b.mark_paid) {
+      const receipt = String(b.receipt || '').trim().toUpperCase();
+      if (!/^[A-Z0-9]{8,12}$/.test(receipt)) return res.status(400).json({ error: 'Enter the M-Pesa confirmation code from the payment message (8-12 letters/digits).' });
+      try { await settleAffPayment(p, receipt); } catch (e) { err = 'activate: ' + errText(e); }
+    } else {
+      try { const r = await pesafluxCall('/v1/transactionstatus', { transaction_request_id: p.request_id }); raw = r && r.json; } catch (e) { err = 'PesaFlux: ' + errText(e); }
+      try { await reconcileAffPaymentInner({ ...p, last_checked_at: null, status: p.status === 'failed' ? 'pending' : p.status }, true); }
+      catch (e) { err = (err ? err + '; ' : '') + 'activate: ' + errText(e); }
+    }
+    const after = (await pool.query(`SELECT status, failure_reason, last_error FROM trv_aff_payments WHERE id = $1`, [p.id])).rows[0];
+    const a = await loadAffiliate(p.user_id);
+    return res.json({ payment_id: p.id, amount: p.amount, before, after, pesaflux: raw, affiliate_active: !!a, code: a ? showRefCode(a.code) : null, error: err });
+  } catch (e) {
+    console.error('admin/aff/recheck error:', e);
+    return res.status(500).json({ error: 'Server error: ' + e.message });
+  }
+});
+
 app.post('/admin/aff/due', adminLimiter, async (req, res) => {
   if (!adminOnly(req, res)) return;
   try {
@@ -1759,6 +1819,12 @@ button.d{background:#C42B1C}
 <input id="p-id" placeholder="Affiliate ID" inputmode="numeric">
 <input id="p-ref" placeholder="Your M-Pesa reference for the payout">
 <button id="paid">Mark paid</button></div>
+<div class="c"><h2>5. Affiliate paid but not activated?</h2>
+<p class="n">Type the affiliate's phone number. "Re-check" asks PesaFlux again and shows exactly what it said and what went wrong. If you can see the M-Pesa confirmation message yourself, type its code and press "Confirm paid" to activate them.</p>
+<input id="a-phone" placeholder="Affiliate phone number" inputmode="tel">
+<button id="recheck">Re-check</button>
+<input id="a-receipt" placeholder="M-Pesa confirmation code (only for Confirm paid)">
+<button id="confirmpaid">Confirm paid</button></div>
 <script>
 var $=function(i){return document.getElementById(i)};
 function show(ok,m){var o=$('out');o.className=ok?'ok':'bad';o.textContent=m}
@@ -1800,6 +1866,18 @@ $('paid').onclick=async function(){
   var r=await call('/admin/aff/pay',{affiliate_id:id,reference:ref});if(!r)return;
   show(r.s===200,r.s===200?('Recorded: KES '+r.j.paid+' ('+r.j.payments+' payments).'):(r.j.error||('Failed ('+r.s+')')));
 };
+async function affRecheck(manual){
+  var phone=$('a-phone').value.trim();if(!phone){show(false,'Enter the affiliate phone number.');return}
+  var body={phone:phone};
+  if(manual){var rc=$('a-receipt').value.trim();if(!rc){show(false,'Enter the M-Pesa confirmation code.');return}
+    if(!confirm('Activate this affiliate using M-Pesa code '+rc+'? Only do this if you have seen the payment.'))return;body.mark_paid=true;body.receipt=rc}
+  var r=await call('/admin/aff/recheck',body);if(!r)return;
+  if(r.s!==200){show(false,r.j.error||('Failed ('+r.s+')'));return}
+  var d=r.j;
+  show(d.affiliate_active,(d.affiliate_active?'ACTIVE. Code '+d.code+'\n':'NOT ACTIVE yet\n')+'Payment '+d.payment_id+' (KES '+d.amount+')\nBefore: '+d.before.status+(d.before.failure_reason?' ['+d.before.failure_reason+']':'')+(d.before.last_error?'\nEarlier error: '+d.before.last_error:'')+'\nNow: '+d.after.status+(d.after.failure_reason?' ['+d.after.failure_reason+']':'')+(d.error?'\nError: '+d.error:'')+(d.pesaflux?'\nPesaFlux said: '+JSON.stringify(d.pesaflux):''));
+}
+$('recheck').onclick=function(){affRecheck(false)};
+$('confirmpaid').onclick=function(){affRecheck(true)};
 $('revoke').onclick=async function(){
   var phone=$('r-phone').value.trim();if(!phone){show(false,'Enter a phone number.');return}
   if(!confirm('Revoke the device for '+phone+'? They will have to register again.'))return;
