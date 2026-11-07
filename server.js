@@ -1624,11 +1624,11 @@ app.post('/aff/join/status', affLimiter, auth, async (req, res) => {
     let p = (await pool.query(`SELECT * FROM trv_aff_payments WHERE id = $1`, [id])).rows[0];
     if (!p || p.user_id !== uid) return res.status(404).json({ status: 'unknown' });
 
-    // Ask PesaFlux what really happened (works even if the webhook was lost).
+    // Ask PesaFlux again (works even if the webhook was lost).
     p = await reconcileAffPayment(p);
 
-    // Self-heal: if the fee is already marked paid but the affiliate row is
-    // missing (e.g. a race or an earlier activation error), create it now.
+    // Self-heal: fee is paid but the affiliate row is missing (transient failure,
+    // earlier race, etc.). Create it now and retry the code-collision loop.
     let a = await loadAffiliate(uid);
     if (!a && p.status === 'paid') {
       for (let i = 0; i < 6 && !a; i++) {
@@ -1648,16 +1648,26 @@ app.post('/aff/join/status', affLimiter, auth, async (req, res) => {
       }
     }
 
+    // On success, also make sure the fee payment itself is marked paid so a
+    // subsequent /aff/me does not miss it.
+    if (a && p.status !== 'paid') {
+      await pool.query(
+        `UPDATE trv_aff_payments SET status='paid', paid_at=COALESCE(paid_at,NOW()), updated_at=NOW()
+          WHERE id = $1 AND status <> 'paid'`, [id]
+      ).catch(function(){});
+    }
+
     const fresh = (await pool.query(
       `SELECT status, failure_reason, last_error FROM trv_aff_payments WHERE id = $1`, [id]
     )).rows[0] || p;
 
     const status = a ? 'paid' : fresh.status;
     return res.json({
-      status,
+      status: status,
       reference: id,
       failure_reason: status === 'failed' ? fresh.failure_reason : null,
-      problem: !a && !!fresh.last_error,
+      // Only flag a real snag if the fee is paid AND the row is still missing AND we have an error.
+      problem: !a && fresh.status === 'paid' && !!fresh.last_error,
       affiliate: a ? { code: a.code, display_code: showRefCode(a.code) } : null
     });
   } catch (e) {
