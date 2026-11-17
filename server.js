@@ -106,15 +106,15 @@ console.log(`ℹ️  WhatsApp verification: ${!WA_NUMBER ? 'NOT configured (set 
 
 // ====================== Premium: pricing, trial, payments (PesaFlux) ======================
 // PESAFLUX_API_KEY and PESAFLUX_EMAIL are read from the environment under exactly these names.
-const PRICE_PERSONAL = parseInt(process.env.PRICE_PERSONAL_KES, 10) || 2;     // KES
-const PRICE_BUSINESS = parseInt(process.env.PRICE_BUSINESS_KES, 10) || 3;     // KES
+const PRICE_PERSONAL = parseInt(process.env.PRICE_PERSONAL_KES, 10) || 250;     // KES
+const PRICE_BUSINESS = parseInt(process.env.PRICE_BUSINESS_KES, 10) || 500;     // KES
 const PREMIUM_PERIOD_DAYS = parseInt(process.env.PREMIUM_PERIOD_DAYS, 10) || 30; // how long one payment lasts
 const TRIAL_MINUTES = parseFloat(process.env.TRIAL_MINUTES) || 30;                // free mode length. TESTING = 2. PRODUCTION: change 2 to 30 (or set the TRIAL_MINUTES env var)
 const TRIAL_MAX_PER_IP_PER_DAY = parseInt(process.env.TRIAL_MAX_PER_IP_PER_DAY, 10) || 20;
 const PESAFLUX_BASE_URL = (process.env.PESAFLUX_BASE_URL || 'https://api.pesaflux.co.ke').replace(/\/+$/, '');
 const PAYMENT_PENDING_MAX_MS = 10 * 60 * 1000;   // an unanswered M-Pesa prompt is treated as expired after this
 // ---- Affiliates ----
-const AFFILIATE_FEE_KES = parseInt(process.env.AFFILIATE_FEE_KES, 10) || 1;           // one-off fee to become an affiliate
+const AFFILIATE_FEE_KES = parseInt(process.env.AFFILIATE_FEE_KES, 10) || 50;           // one-off fee to become an affiliate
 const COMMISSION_PERSONAL_KES = parseInt(process.env.COMMISSION_PERSONAL_KES, 10) || 49; // per verified Personal payment
 const COMMISSION_BUSINESS_KES = parseInt(process.env.COMMISSION_BUSINESS_KES, 10) || 80; // per verified Business payment
 const APP_PUBLIC_URL = process.env.APP_PUBLIC_URL || 'https://travis-three.vercel.app/travis_core.html'; // used for the share link
